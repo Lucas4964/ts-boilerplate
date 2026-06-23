@@ -1,0 +1,136 @@
+import { SimElement } from "./SimElement";
+import { Graphics } from "../ui/Graphics";
+import { Point } from "../geom/Point";
+import { EditInfo } from "./EditInfo";
+import { getUnitText } from "../util/format";
+import type { SimulationManager } from "../core/SimulationManager";
+
+// Intermediate base for independent voltage sources (mirrors VoltageElm.java).
+// Holds the waveform so DC/AC subclasses only differ in defaults + symbol.
+// A voltage source adds one row/column to the MNA matrix; its current is solved
+// as an extra unknown (delivered back via setCurrent()).
+export class VoltageElm extends SimElement {
+  static readonly WF_DC = 0;
+  static readonly WF_AC = 1;
+
+  waveform = VoltageElm.WF_DC;
+  maxVoltage = 5;
+  frequency = 100;
+  phaseShift = 0; // radians
+  bias = 0;
+
+  override getType(): string {
+    return "VoltageElm";
+  }
+  override getPostCount(): number {
+    return 2;
+  }
+  override getVoltageSourceCount(): number {
+    return 1;
+  }
+  override getPost(n: number): Point {
+    return n === 0 ? this.point1 : this.point2;
+  }
+
+  override setPoints(): void {
+    super.setPoints();
+    this.calcLeads(36);
+  }
+
+  getVoltage(time: number): number {
+    if (this.waveform === VoltageElm.WF_AC) {
+      return Math.sin(2 * Math.PI * this.frequency * time + this.phaseShift) * this.maxVoltage + this.bias;
+    }
+    return this.maxVoltage;
+  }
+
+  override stamp(sim: SimulationManager): void {
+    if (this.waveform === VoltageElm.WF_DC) {
+      sim.stampVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, this.getVoltage(0));
+    } else {
+      // time-varying: stamp matrix coefficients once, push value each step
+      sim.stampVoltageSource(this.nodes[0], this.nodes[1], this.voltSource);
+    }
+  }
+
+  override doStep(sim: SimulationManager): void {
+    if (this.waveform !== VoltageElm.WF_DC) {
+      sim.updateVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, this.getVoltage(sim.time));
+    }
+  }
+
+  protected radius(): number {
+    return Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y) / 2;
+  }
+
+  protected drawSymbol(g: Graphics): void {
+    const r = this.radius();
+    if (this.waveform === VoltageElm.WF_AC) {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      const m = 20;
+      for (let i = 0; i <= m; i++) {
+        const f = 0.5 + (i / m - 0.5) * 0.7;
+        const off = Math.sin((i / m - 0.5) * 2 * Math.PI) * r * 0.5;
+        const p = this.interpPoint(this.lead1, this.lead2, f, off);
+        xs.push(p.x);
+        ys.push(p.y);
+      }
+      g.drawPolyline(xs, ys, xs.length);
+    } else {
+      const plus = this.interpPoint(this.lead1, this.lead2, 0.5 - 9 / (2 * r), 0);
+      const minus = this.interpPoint(this.lead1, this.lead2, 0.5 + 9 / (2 * r), 0);
+      g.drawLine(plus.x - 4, plus.y, plus.x + 4, plus.y);
+      g.drawLine(plus.x, plus.y - 4, plus.x, plus.y + 4);
+      g.drawLine(minus.x - 4, minus.y, minus.x + 4, minus.y);
+    }
+  }
+
+  override draw(g: Graphics): void {
+    this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 20);
+    this.draw2Leads(g);
+    const center = this.interpPoint(this.lead1, this.lead2, 0.5);
+    this.color(g);
+    g.drawCircle(center.x, center.y, this.radius());
+    this.drawSymbol(g);
+    this.doDots(g);
+    this.drawPosts(g);
+  }
+
+  override getEditInfo(n: number): EditInfo | null {
+    if (this.waveform === VoltageElm.WF_DC) {
+      return n === 0 ? new EditInfo("Voltage (V)", this.maxVoltage) : null;
+    }
+    if (n === 0) return new EditInfo("Max Voltage (V)", this.maxVoltage);
+    if (n === 1) return new EditInfo("Frequency (Hz)", this.frequency);
+    if (n === 2) return new EditInfo("Phase (deg)", (this.phaseShift * 180) / Math.PI);
+    return null;
+  }
+  override setEditValue(n: number, value: number): void {
+    if (this.waveform === VoltageElm.WF_DC) {
+      if (n === 0) this.maxVoltage = value;
+      return;
+    }
+    if (n === 0) this.maxVoltage = value;
+    else if (n === 1 && value > 0) this.frequency = value;
+    else if (n === 2) this.phaseShift = (value * Math.PI) / 180;
+  }
+
+  override getDumpAttributes(): number[] {
+    return [this.maxVoltage, this.frequency, this.phaseShift, this.bias];
+  }
+  override applyDumpAttributes(a: number[]): void {
+    if (a.length > 0) this.maxVoltage = a[0];
+    if (a.length > 1) this.frequency = a[1];
+    if (a.length > 2) this.phaseShift = a[2];
+    if (a.length > 3) this.bias = a[3];
+  }
+
+  override getInfo(): string[] {
+    return [
+      this.waveform === VoltageElm.WF_AC ? "AC Source" : "DC Source",
+      "V = " + getUnitText(this.volts[1] - this.volts[0], "V"),
+      "I = " + getUnitText(this.current, "A"),
+    ];
+  }
+}

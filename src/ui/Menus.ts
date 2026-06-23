@@ -1,0 +1,93 @@
+import type { Simulator } from "../core/Simulator";
+import { ElementRegistry } from "../elements/ElementRegistry";
+
+// Builds the toolbar DOM and keeps button state in sync. Equivalent in spirit
+// to CircuitJS's Menus/composeMainMenu — all actions are routed through the
+// CommandManager so the menu stays a thin view.
+export class Menus {
+  private sim: Simulator;
+  private runButton!: HTMLButtonElement;
+  private modeButtons = new Map<string, HTMLButtonElement>();
+
+  constructor(sim: Simulator) {
+    this.sim = sim;
+  }
+
+  build(): void {
+    const tb = this.sim.toolbarEl;
+    tb.innerHTML = "";
+
+    const ctrl = this.group(tb);
+    this.runButton = this.button(ctrl, "Run", () => this.sim.commands.perform("toggle-run"));
+    this.button(ctrl, "Reset", () => this.sim.commands.perform("reset"));
+
+    const modeG = this.group(tb);
+    this.modeButtons.set("select", this.button(modeG, "Select", () => this.sim.commands.perform("mode:select")));
+    for (const def of ElementRegistry.list()) {
+      this.modeButtons.set(
+        def.name,
+        this.button(modeG, def.label, () => this.sim.commands.perform("mode:" + def.name)),
+      );
+    }
+
+    const editG = this.group(tb);
+    this.button(editG, "Delete", () => this.sim.commands.perform("delete"));
+    this.button(editG, "Clear", () => this.sim.commands.perform("clear"));
+
+    const ioG = this.group(tb);
+    this.button(ioG, "Export", () => this.sim.commands.perform("export"));
+    this.button(ioG, "Import", () => this.sim.commands.perform("import"));
+
+    const speedG = this.group(tb);
+    this.label(speedG, "Speed");
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "1";
+    slider.max = "300";
+    slider.value = String(this.sim.sim.stepsPerFrame);
+    slider.addEventListener("input", () => {
+      const v = Number(slider.value);
+      this.sim.sim.stepsPerFrame = Math.max(1, Math.round(v));
+      this.sim.speed = v / 80;
+    });
+    speedG.appendChild(slider);
+
+    this.updateRunButton(this.sim.simRunning);
+    this.updateModeButtons(this.sim.mouseMode);
+  }
+
+  updateRunButton(running: boolean): void {
+    this.runButton.textContent = running ? "Stop" : "Run";
+    this.runButton.classList.toggle("active", running);
+  }
+
+  updateModeButtons(mode: string): void {
+    for (const [name, btn] of this.modeButtons) {
+      btn.classList.toggle("active", name === mode);
+    }
+  }
+
+  // --- tiny DOM helpers -----------------------------------------------------
+
+  private group(parent: HTMLElement): HTMLElement {
+    const g = document.createElement("div");
+    g.className = "group";
+    parent.appendChild(g);
+    return g;
+  }
+
+  private button(parent: HTMLElement, text: string, onClick: () => void): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.textContent = text;
+    b.addEventListener("click", onClick);
+    parent.appendChild(b);
+    return b;
+  }
+
+  private label(parent: HTMLElement, text: string): void {
+    const s = document.createElement("span");
+    s.className = "label";
+    s.textContent = text;
+    parent.appendChild(s);
+  }
+}

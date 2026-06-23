@@ -1,0 +1,25 @@
+{
+  "name": "canvas-sim-boilerplate",
+  "version": "0.1.0",
+  "description": "Reusable TypeScript boilerplate for interactive canvas simulators (architectural port of CircuitJS1)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "electron": "electron app/main.cjs"
+  },
+  "keywords": [
+    "simulator",
+    "canvas",
+    "boilerplate",
+    "mna",
+    "circuit"
+  ],
+  "license": "GPL-2.0-or-later",
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0"
+  }
+}
