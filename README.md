@@ -36,13 +36,20 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
   Multiple **Ground** symbols also all share node 0.
 - **Select/move:** Select tool, click an element, drag the body to move it.
 - **Expand/compress:** drag an element's **endpoint handle** to lengthen or
-  shorten it (resize one terminal while the other stays put).
+  shorten it (resize one terminal while the other stays put). Ground is a
+  single-terminal symbol but still exposes both ends, so you can stretch and
+  reorient it too.
 - **Zoom & pan:** the **mouse wheel** zooms toward the cursor; **middle- or
   right-drag** pans the view. Zoom buttons / keys zoom around the canvas centre.
 - **Info panel:** select an element to show its live electrical quantities
   (current, voltage drop, value, power, and the circuit operating frequency `fo`
   when an AC source is present) in a panel at the bottom-right — the analog of
   CircuitJS's info overlay.
+- **Voltage reference dot:** R/L/C draw a small **white dot** beside one
+  terminal — the *positive* reference node. The panel shows
+  `Vd = V(dot terminal) − V(other)`, so a sign tells you the orientation
+  relative to the dot. For sources the reference is the `+` terminal, so a
+  normally-biased source reads a positive voltage.
 - **Edit properties:** double-click an element to open the edit dialog. Changes
   preview live; **OK** commits, **Cancel**/**Esc** reverts. Fields accept unit
   strings like `4.7k`, `100n`, `2.2M`.

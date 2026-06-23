@@ -52,6 +52,7 @@ export class ResistorElm extends SimElement {
     ys.push(this.lead2.y);
     g.drawPolyline(xs, ys, xs.length);
     this.doDots(g);
+    this.drawReferenceMark(g);
     this.drawPosts(g);
   }
 

@@ -1,6 +1,6 @@
 import { SimElement } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
-import { Point } from "../geom/Point";
+import { Point, distanceSq } from "../geom/Point";
 import { registerElement } from "./ElementRegistry";
 import type { SimulationManager } from "../core/SimulationManager";
 
@@ -23,16 +23,28 @@ export class GroundElm extends SimElement {
 
   override setPoints(): void {
     super.setPoints();
-    // If created with a zero-length drag, give the symbol a default stub.
+    // If collapsed to a point (created with a plain click), give the symbol a
+    // downward stub so it has an orientation to draw and a handle to grab.
     if (this.dn === 0) {
-      this.point2 = new Point(this.x, this.y + 24);
+      this.point2 = new Point(this.x, this.y + 32);
       const dx = this.point2.x - this.point1.x;
       const dy = this.point2.y - this.point1.y;
       this.dn = Math.sqrt(dx * dx + dy * dy);
       this.dpx1 = dy / this.dn;
       this.dpy1 = -dx / this.dn;
     }
-    this.lead1 = this.interpPoint(this.point1, this.point2, 1 - 16 / this.dn);
+  }
+
+  override getDefaultDragOffset(): { dx: number; dy: number } {
+    return { dx: 0, dy: 32 }; // a ground points downward by default
+  }
+
+  // Only the symbol tip (point2) is a rotate/resize handle; grabbing the post
+  // or the lead moves the whole element. This keeps "move" the default action
+  // and makes "rotate" a deliberate gesture (drag the bars at the tip), instead
+  // of the post doubling as a handle and turning every move into a rotation.
+  override nearestHandle(wx: number, wy: number, hitDist: number): number {
+    return distanceSq(wx, wy, this.x2, this.y2) <= hitDist * hitDist ? 1 : -1;
   }
 
   override stamp(_sim: SimulationManager): void {
@@ -40,22 +52,26 @@ export class GroundElm extends SimElement {
   }
 
   override draw(g: Graphics): void {
-    this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 12);
     this.color(g);
-    g.drawLineP(this.point1, this.lead1);
-    // three decreasing horizontal bars perpendicular to the lead
-    const widths = [10, 6, 2];
-    for (let i = 0; i < widths.length; i++) {
-      const c = this.interpPoint(this.point1, this.point2, 1 - (i * 4) / this.dn);
-      const a = new Point(Math.round(c.x + this.dpx1 * widths[i]), Math.round(c.y + this.dpy1 * widths[i]));
-      const b = new Point(Math.round(c.x - this.dpx1 * widths[i]), Math.round(c.y - this.dpy1 * widths[i]));
+    // lead runs from the post (point1) down to the symbol at point2
+    g.drawLineP(this.point1, this.point2);
+    // three horizontal bars: widest next to the post, narrower past point2
+    // (the standard ground symbol, matching CircuitJS's GroundElm)
+    for (let i = 0; i < 3; i++) {
+      const halfW = 10 - i * 4; // 10, 6, 2
+      const c = this.interpPoint(this.point1, this.point2, 1 + (i * 5) / this.dn);
+      const a = new Point(Math.round(c.x + this.dpx1 * halfW), Math.round(c.y + this.dpy1 * halfW));
+      const b = new Point(Math.round(c.x - this.dpx1 * halfW), Math.round(c.y - this.dpy1 * halfW));
       g.drawLineP(a, b);
     }
+    const tip = this.interpPoint(this.point1, this.point2, 1 + 10 / this.dn);
+    this.setBbox(this.point1.x, this.point1.y, tip.x, tip.y, 11);
+    this.doDots(g);
     this.drawPosts(g);
   }
 
   override getInfo(): string[] {
-    return ["Ground", "0 V reference"];
+    return ["Ground", "0 V reference", this.currentInfo()];
   }
 }
 

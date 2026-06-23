@@ -78,6 +78,7 @@ export class CapacitorElm extends SimElement {
     g.drawLineP(this.plate1[0], this.plate1[1]);
     g.drawLineP(this.plate2[0], this.plate2[1]);
     this.doDots(g);
+    this.drawReferenceMark(g);
     this.drawPosts(g);
   }
 

@@ -64,6 +64,7 @@ export class InductorElm extends SimElement {
     }
     g.drawPolyline(xs, ys, xs.length);
     this.doDots(g);
+    this.drawReferenceMark(g);
     this.drawPosts(g);
   }
 

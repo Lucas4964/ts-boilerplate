@@ -32,6 +32,13 @@ export class VoltageElm extends SimElement {
     return n === 0 ? this.point1 : this.point2;
   }
 
+  // The positive reference is the (+) terminal — post 1, which the source
+  // drives above post 0 (V(post1) - V(post0) = +getVoltage()). This keeps the
+  // info panel showing a positive Vd for a normally-biased source.
+  override getReferenceNode(): number {
+    return 1;
+  }
+
   override setPoints(): void {
     super.setPoints();
     this.calcLeads(36);
@@ -78,8 +85,10 @@ export class VoltageElm extends SimElement {
       }
       g.drawPolyline(xs, ys, xs.length);
     } else {
-      const plus = this.interpPoint(this.lead1, this.lead2, 0.5 - 9 / (2 * r), 0);
-      const minus = this.interpPoint(this.lead1, this.lead2, 0.5 + 9 / (2 * r), 0);
+      // The source drives post 1 above post 0, so "+" belongs on the post-1
+      // (lead2) side and "−" on the post-0 (lead1) side.
+      const plus = this.interpPoint(this.lead1, this.lead2, 0.5 + 9 / (2 * r), 0);
+      const minus = this.interpPoint(this.lead1, this.lead2, 0.5 - 9 / (2 * r), 0);
       g.drawLine(plus.x - 4, plus.y, plus.x + 4, plus.y);
       g.drawLine(plus.x, plus.y - 4, plus.x, plus.y + 4);
       g.drawLine(minus.x - 4, minus.y, minus.x + 4, minus.y);

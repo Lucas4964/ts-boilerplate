@@ -135,7 +135,8 @@ export class MouseManager {
     if (this.draggingNew) {
       // A plain click (no drag) gets a sensible default size instead of vanishing.
       if (this.draggingNew.creationFailed()) {
-        this.draggingNew.drag(this.draggingNew.x + 64, this.draggingNew.y);
+        const o = this.draggingNew.getDefaultDragOffset();
+        this.draggingNew.drag(this.draggingNew.x + o.dx, this.draggingNew.y + o.dy);
       }
       this.draggingNew = null;
       this.sim.setMouseMode("select"); // revert to select after placing one
@@ -168,10 +169,22 @@ export class MouseManager {
   private findElementAt(wx: number, wy: number): SimElement | null {
     const list = this.sim.elmList;
     const tol = BODY_HIT_PX / this.sim.scale;
+    // Pick the *closest* element rather than the first whose box contains the
+    // point. A click inside an area element's body counts as distance 0, so
+    // round/wide parts stay easy to grab; thin parts (wires) are matched only
+    // by proximity to their drawn line. Iterating from the top of the z-order
+    // means the frontmost element wins ties.
+    let best: SimElement | null = null;
+    let bestDist = Infinity;
     for (let i = list.length - 1; i >= 0; i--) {
       const e = list[i];
-      if (e.getBoundingBox().contains(wx, wy) || e.distanceTo(wx, wy) < tol) return e;
+      const inside = e.boundingBoxSelectable() && e.getBoundingBox().contains(wx, wy);
+      const dist = inside ? 0 : e.distanceTo(wx, wy);
+      if (dist < tol && dist < bestDist) {
+        best = e;
+        bestDist = dist;
+      }
     }
-    return null;
+    return best;
   }
 }

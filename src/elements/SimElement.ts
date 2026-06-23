@@ -121,8 +121,22 @@ export abstract class SimElement {
   getCurrent(): number {
     return this.current;
   }
+
+  /**
+   * Index of the post treated as the *positive* voltage reference — the
+   * terminal marked with the small white dot. The info panel shows
+   *   Vd = V(reference) - V(other),
+   * so the user can read straight off the symbol how the displayed voltage was
+   * computed. Passive elements keep post 0; voltage sources point it at their
+   * (+) terminal (see VoltageElm).
+   */
+  getReferenceNode(): number {
+    return 0;
+  }
+
+  /** Voltage across the element, measured from the reference post (see above). */
   getVoltageDiff(): number {
-    return this.volts[0] - this.volts[1];
+    return this.getReferenceNode() === 1 ? this.volts[1] - this.volts[0] : this.volts[0] - this.volts[1];
   }
   reset(): void {
     for (let i = 0; i < this.volts.length; i++) this.volts[i] = 0;
@@ -193,13 +207,30 @@ export abstract class SimElement {
   }
 
   /**
+   * Whether the element exposes endpoint handles for resize/reorient by drag.
+   * Two-terminal elements do; single-terminal symbols (e.g. ground) opt in so
+   * they can still be stretched and rotated even though they have one post.
+   */
+  protected hasHandles(): boolean {
+    return this.getPostCount() >= 2;
+  }
+
+  /**
+   * Endpoint offset applied when the element is created with a plain click
+   * (no drag-out), so it gets a sensible default size instead of vanishing.
+   * Horizontal stub by default; override to point a symbol elsewhere.
+   */
+  getDefaultDragOffset(): { dx: number; dy: number } {
+    return { dx: 64, dy: 0 };
+  }
+
+  /**
    * Index (0 or 1) of the drag handle within `hitDist` (world units) of
    * (wx, wy), or -1 if none. The handles are the two defining endpoints; moving
    * just one expands/compresses the element (CircuitJS's drag-post behaviour).
-   * Single-post elements (e.g. ground) have no resize handle.
    */
   nearestHandle(wx: number, wy: number, hitDist: number): number {
-    if (this.getPostCount() < 2) return -1;
+    if (!this.hasHandles()) return -1;
     const r2 = hitDist * hitDist;
     const d0 = distanceSq(wx, wy, this.x, this.y);
     const d1 = distanceSq(wx, wy, this.x2, this.y2);
@@ -238,6 +269,16 @@ export abstract class SimElement {
     return this.boundingBox;
   }
 
+  /**
+   * Whether a click anywhere inside the (rectangular) bounding box counts as a
+   * hit. True for elements with a real 2-D body (so the round/wide ones stay
+   * easy to grab); thin elements like wires turn this off so their hit area
+   * hugs the drawn line instead of filling a big diagonal rectangle.
+   */
+  boundingBoxSelectable(): boolean {
+    return true;
+  }
+
   /** Hit-test for selection (distance to the post-to-post segment). */
   distanceTo(px: number, py: number): number {
     return Math.sqrt(this.distanceToSegment(px, py, this.x, this.y, this.x2, this.y2));
@@ -266,6 +307,20 @@ export abstract class SimElement {
       const p = this.getPost(i);
       g.fillCircle(p.x, p.y, 2.5);
     }
+  }
+
+  /**
+   * Small white dot beside the reference terminal (see getReferenceNode), so
+   * the user can see at a glance which node is the positive voltage reference.
+   * Placed at the body end on the reference side, nudged perpendicular so it
+   * sits next to the symbol rather than on the wire.
+   */
+  protected drawReferenceMark(g: Graphics): void {
+    const base = this.getReferenceNode() === 1 ? this.lead2 : this.lead1;
+    const cx = Math.round(base.x + this.dpx1 * 8);
+    const cy = Math.round(base.y + this.dpy1 * 8);
+    g.setColor("#ffffff");
+    g.fillCircle(cx, cy, 1.3); // discreet marker, smaller than the posts
   }
 
   protected draw2Leads(g: Graphics): void {
