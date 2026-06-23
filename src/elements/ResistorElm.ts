@@ -72,9 +72,10 @@ export class ResistorElm extends SimElement {
   override getInfo(): string[] {
     return [
       "Resistor",
+      this.currentInfo(),
+      this.voltageDiffInfo(),
       "R = " + getUnitText(this.resistance, "Ω"),
-      "I = " + getUnitText(this.current, "A"),
-      "V = " + getUnitText(this.getVoltageDiff(), "V"),
+      this.powerInfo(),
     ];
   }
 }

@@ -38,6 +38,11 @@ export class Menus {
     this.button(ioG, "Export", () => this.sim.commands.perform("export"));
     this.button(ioG, "Import", () => this.sim.commands.perform("import"));
 
+    const viewG = this.group(tb);
+    this.button(viewG, "Zoom +", () => this.sim.commands.perform("zoom-in"));
+    this.button(viewG, "Zoom −", () => this.sim.commands.perform("zoom-out"));
+    this.button(viewG, "Reset View", () => this.sim.commands.perform("reset-view"));
+
     const speedG = this.group(tb);
     this.label(speedG, "Speed");
     const slider = document.createElement("input");

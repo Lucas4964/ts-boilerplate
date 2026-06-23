@@ -22,6 +22,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  position: relative; /* anchor for the floating #infopanel */
 }
 
 #toolbar {
@@ -174,4 +175,34 @@ body {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+/* --- selected-element info panel (bottom-right) --- */
+#infopanel {
+  position: absolute;
+  right: 12px;
+  bottom: 34px; /* clear the #infobar */
+  display: none;
+  min-width: 140px;
+  padding: 8px 12px;
+  background: rgba(20, 22, 26, 0.88);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 6px;
+  color: #e6e6e6;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none; /* never steal clicks from the canvas */
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  z-index: 5;
+}
+
+#infopanel .ip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #fff;
+}
+
+#infopanel .ip-row {
+  white-space: pre;
 }

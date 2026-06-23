@@ -98,9 +98,10 @@ export class CapacitorElm extends SimElement {
   override getInfo(): string[] {
     return [
       "Capacitor",
+      this.currentInfo(),
+      this.voltageDiffInfo(),
       "C = " + getUnitText(this.capacitance, "F"),
-      "I = " + getUnitText(this.current, "A"),
-      "V = " + getUnitText(this.getVoltageDiff(), "V"),
+      this.powerInfo(),
     ];
   }
 }

@@ -29,7 +29,16 @@ export class CommandManager {
     } else if (cmd === "export") this.exportCircuit();
     else if (cmd === "import") this.importCircuit();
     else if (cmd === "undo") this.undo();
+    else if (cmd === "zoom-in") this.zoomCenter(1.2);
+    else if (cmd === "zoom-out") this.zoomCenter(1 / 1.2);
+    else if (cmd === "reset-view") this.sim.resetView();
     else if (cmd.startsWith("mode:")) this.sim.setMouseMode(cmd.slice(5));
+  }
+
+  /** Zoom around the centre of the canvas (used by toolbar buttons / keys). */
+  private zoomCenter(factor: number): void {
+    const r = this.sim.canvas.getBoundingClientRect();
+    this.sim.zoomAt(r.width / 2, r.height / 2, factor);
   }
 
   pushUndo(): void {
@@ -74,6 +83,15 @@ export class CommandManager {
       e.preventDefault();
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
       this.perform("undo");
+      e.preventDefault();
+    } else if (e.key === "+" || e.key === "=") {
+      this.perform("zoom-in");
+      e.preventDefault();
+    } else if (e.key === "-" || e.key === "_") {
+      this.perform("zoom-out");
+      e.preventDefault();
+    } else if (e.key === "0" || e.key === "Home") {
+      this.perform("reset-view");
       e.preventDefault();
     } else if (e.key === "Escape") {
       this.sim.setMouseMode("select");

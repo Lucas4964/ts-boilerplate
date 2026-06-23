@@ -1,6 +1,7 @@
 import { Graphics } from "../ui/Graphics";
 import { Point, Rectangle, distanceSq } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
+import { getUnitText } from "../util/format";
 import type { SimulationManager } from "../core/SimulationManager";
 
 // Abstract base for every element — the direct analog of CircuitJS's CircuitElm.
@@ -191,6 +192,34 @@ export abstract class SimElement {
     this.setPosition(this.x + dx, this.y + dy, this.x2 + dx, this.y2 + dy);
   }
 
+  /**
+   * Index (0 or 1) of the drag handle within `hitDist` (world units) of
+   * (wx, wy), or -1 if none. The handles are the two defining endpoints; moving
+   * just one expands/compresses the element (CircuitJS's drag-post behaviour).
+   * Single-post elements (e.g. ground) have no resize handle.
+   */
+  nearestHandle(wx: number, wy: number, hitDist: number): number {
+    if (this.getPostCount() < 2) return -1;
+    const r2 = hitDist * hitDist;
+    const d0 = distanceSq(wx, wy, this.x, this.y);
+    const d1 = distanceSq(wx, wy, this.x2, this.y2);
+    if (d0 <= r2 && d0 <= d1) return 0;
+    if (d1 <= r2) return 1;
+    return -1;
+  }
+
+  /** Move a single endpoint (expansion/compression), leaving the other fixed. */
+  dragHandle(which: number, gx: number, gy: number): void {
+    if (which === 0) {
+      this.x = gx;
+      this.y = gy;
+    } else {
+      this.x2 = gx;
+      this.y2 = gy;
+    }
+    this.setPoints();
+  }
+
   /** True if the element is a zero-length "click" (creation should be cancelled). */
   creationFailed(): boolean {
     return this.x === this.x2 && this.y === this.y2;
@@ -274,6 +303,32 @@ export abstract class SimElement {
   }
 
   // ---- info / editing ------------------------------------------------------
+
+  /** Instantaneous power dissipated/absorbed (V·I). Override for multiport parts. */
+  getPower(): number {
+    return this.getVoltageDiff() * this.getCurrent();
+  }
+
+  /**
+   * Oscillation frequency this element imposes on the circuit, or 0 if none.
+   * The info panel shows the circuit's operating frequency `fo` (the max over
+   * all elements), so an AC source reports its frequency here.
+   */
+  getOscillationFrequency(): number {
+    return 0;
+  }
+
+  // Shared info-line builders so every element labels quantities the same way
+  // (matches CircuitJS: "I = …", "Vd = …", "P = …").
+  protected currentInfo(): string {
+    return "I = " + getUnitText(this.getCurrent(), "A");
+  }
+  protected voltageDiffInfo(): string {
+    return "Vd = " + getUnitText(this.getVoltageDiff(), "V");
+  }
+  protected powerInfo(): string {
+    return "P = " + getUnitText(this.getPower(), "W");
+  }
 
   getInfo(): string[] {
     return [this.getType()];

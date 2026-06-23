@@ -126,11 +126,20 @@ export class VoltageElm extends SimElement {
     if (a.length > 3) this.bias = a[3];
   }
 
+  override getOscillationFrequency(): number {
+    return this.waveform === VoltageElm.WF_AC ? this.frequency : 0;
+  }
+
   override getInfo(): string[] {
-    return [
+    const info = [
       this.waveform === VoltageElm.WF_AC ? "AC Source" : "DC Source",
-      "V = " + getUnitText(this.volts[1] - this.volts[0], "V"),
-      "I = " + getUnitText(this.current, "A"),
+      this.currentInfo(),
+      this.voltageDiffInfo(),
+      this.powerInfo(),
     ];
+    if (this.waveform === VoltageElm.WF_AC) {
+      info.push("f = " + getUnitText(this.frequency, "Hz"));
+    }
+    return info;
   }
 }

@@ -8,10 +8,16 @@ import type { SimElement } from "./elements/SimElement";
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const toolbar = document.getElementById("toolbar") as HTMLElement;
 const infobar = document.getElementById("infobar") as HTMLElement;
+const infopanel = document.getElementById("infopanel") as HTMLElement;
 
-const sim = new Simulator({ canvas, toolbar, infobar });
+const sim = new Simulator({ canvas, toolbar, infobar, infopanel });
 sim.init();
 loadDemoCircuit(sim);
+
+// Dev-only: expose the simulator for debugging in the browser console.
+if (import.meta.env.DEV) {
+  (window as unknown as { sim: Simulator }).sim = sim;
+}
 
 // A small RC charging circuit so the app does something on first load.
 // Two ground symbols share node 0, which closes the loop without a wire element

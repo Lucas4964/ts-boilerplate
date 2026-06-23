@@ -84,9 +84,10 @@ export class InductorElm extends SimElement {
   override getInfo(): string[] {
     return [
       "Inductor",
+      this.currentInfo(),
+      this.voltageDiffInfo(),
       "L = " + getUnitText(this.inductance, "H"),
-      "I = " + getUnitText(this.current, "A"),
-      "V = " + getUnitText(this.getVoltageDiff(), "V"),
+      this.powerInfo(),
     ];
   }
 }
