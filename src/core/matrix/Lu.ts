@@ -48,19 +48,27 @@ export function luFactor(a: number[][], n: number, ipvt: number[]): boolean {
 /**
  * Solve A x = b using the LU factors from {@link luFactor}. `b` is overwritten
  * with the solution x.
+ *
+ * The forward substitution is *row-oriented* (`tot = b[row] - Σ_{j<i} a[i][j]·b[j]`),
+ * which is what a full-row-swap factorization requires — the L multipliers in
+ * row i were moved into row i by the pivot swaps, so they must be read from
+ * a[i][j]. (A column-oriented forward solve would be inconsistent with the
+ * full-row swaps in luFactor and gives wrong answers once two or more pivot
+ * swaps interact — e.g. circuits with ≥2 voltage sources.) Faithful port of
+ * CircuitJS's lu_solve_dense.
  */
 export function luSolve(a: number[][], n: number, ipvt: number[], b: number[]): void {
-  // forward substitution, applying row pivots
+  // forward substitution (L y = P b), with the row interchanges folded in
   for (let i = 0; i < n; i++) {
     const row = ipvt[i];
-    const swap = b[row];
+    let tot = b[row];
     b[row] = b[i];
-    b[i] = swap;
-    for (let j = i + 1; j < n; j++) {
-      b[j] -= a[j][i] * swap;
+    for (let j = 0; j < i; j++) {
+      tot -= a[i][j] * b[j];
     }
+    b[i] = tot;
   }
-  // back substitution
+  // back substitution (U x = y)
   for (let i = n - 1; i >= 0; i--) {
     let t = b[i];
     for (let j = i + 1; j < n; j++) {

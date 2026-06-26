@@ -2,7 +2,8 @@ import { SimElement } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
 import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
-import { getUnitText } from "../util/format";
+import { getUnitText, formatPolar } from "../util/format";
+import { Complex } from "../core/Complex";
 import type { SimulationManager } from "../core/SimulationManager";
 
 // Intermediate base for independent voltage sources (mirrors VoltageElm.java).
@@ -46,7 +47,10 @@ export class VoltageElm extends SimElement {
 
   getVoltage(time: number): number {
     if (this.waveform === VoltageElm.WF_AC) {
-      return Math.sin(2 * Math.PI * this.frequency * time + this.phaseShift) * this.maxVoltage + this.bias;
+      // Cosine reference: v(t) = Vm·cos(ωt+φ) ⟺ phasor Vm∠φ. This matches the
+      // textbook (Sadiku) phasor convention, so the time-domain and phasor modes
+      // agree and the user enters magnitude/phase straight from the book.
+      return Math.cos(2 * Math.PI * this.frequency * time + this.phaseShift) * this.maxVoltage + this.bias;
     }
     return this.maxVoltage;
   }
@@ -66,8 +70,31 @@ export class VoltageElm extends SimElement {
     }
   }
 
+  /** The source phasor: magnitude (maxVoltage) ∠ phase (phaseShift). */
+  getPhasor(): Complex {
+    return Complex.fromPolar(this.maxVoltage, this.phaseShift);
+  }
+
+  // Phasor mode: an independent source is its phasor. The per-source frequency
+  // is ignored here — the phasor solve uses the single global analysis frequency.
+  // A DC source has no AC phasor, so it is killed (short circuit, 0 V) per
+  // superposition; new DC sources are also blocked from insertion in phasor mode.
+  override stampPhasor(sim: SimulationManager): void {
+    const v = this.waveform === VoltageElm.WF_DC ? Complex.ZERO : this.getPhasor();
+    sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, v);
+  }
+
   protected radius(): number {
     return Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y) / 2;
+  }
+
+  // Hit area = the leads (segment) plus the round body, so clicking anywhere on
+  // the circle selects the source (a plain segment test would miss its sides).
+  override distanceTo(px: number, py: number): number {
+    const seg = super.distanceTo(px, py);
+    const c = this.interpPoint(this.lead1, this.lead2, 0.5);
+    const circle = Math.max(0, Math.hypot(px - c.x, py - c.y) - this.radius());
+    return Math.min(seg, circle);
   }
 
   protected drawSymbol(g: Graphics): void {
@@ -103,6 +130,7 @@ export class VoltageElm extends SimElement {
     g.drawCircle(center.x, center.y, this.radius());
     this.drawSymbol(g);
     this.doDots(g);
+    this.drawReferenceMark(g); // white dot on the (+) terminal (post 1)
     this.drawPosts(g);
   }
 
@@ -110,8 +138,18 @@ export class VoltageElm extends SimElement {
     if (this.waveform === VoltageElm.WF_DC) {
       return n === 0 ? new EditInfo("Voltage (V)", this.maxVoltage) : null;
     }
-    if (n === 0) return new EditInfo("Max Voltage (V)", this.maxVoltage);
-    if (n === 1) return new EditInfo("Frequency (Hz)", this.frequency);
+    const phasor = SimElement.analysisMode === "phasor";
+    if (n === 0) return new EditInfo(phasor ? "Magnitude (V)" : "Max Voltage (V)", this.maxVoltage);
+    if (n === 1) {
+      if (phasor) {
+        // Locked to the global analysis frequency in phasor mode (all AC sources
+        // share it). Shown for context but read-only; never written back.
+        const ei = new EditInfo("Frequency (Hz)", SimElement.analysisFrequency);
+        ei.disabled = true;
+        return ei;
+      }
+      return new EditInfo("Frequency (Hz)", this.frequency);
+    }
     if (n === 2) return new EditInfo("Phase (deg)", (this.phaseShift * 180) / Math.PI);
     return null;
   }
@@ -150,5 +188,14 @@ export class VoltageElm extends SimElement {
       info.push("f = " + getUnitText(this.frequency, "Hz"));
     }
     return info;
+  }
+
+  override getInfoPhasor(): string[] {
+    return [
+      this.waveform === VoltageElm.WF_AC ? "AC Source" : "DC Source",
+      "V = " + formatPolar(this.getPhasor(), "V"),
+      this.currentInfoPhasor(),
+      this.powerInfoPhasor(),
+    ];
   }
 }

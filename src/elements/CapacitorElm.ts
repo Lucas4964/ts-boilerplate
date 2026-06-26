@@ -3,7 +3,8 @@ import { Graphics } from "../ui/Graphics";
 import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
 import { registerElement } from "./ElementRegistry";
-import { getUnitText } from "../util/format";
+import { getUnitText, getShortUnitText } from "../util/format";
+import { Complex } from "../core/Complex";
 import type { SimulationManager } from "../core/SimulationManager";
 
 // Capacitor via the trapezoidal companion model: a resistor (R = dt/2C) in
@@ -18,6 +19,7 @@ export class CapacitorElm extends SimElement {
   private compResistance = 0;
   private voltdiff = 0;
   private curSourceValue = 0;
+  private yPhasor = Complex.ZERO; // complex admittance at the analysis frequency
 
   private plate1: [Point, Point] = [new Point(), new Point()];
   private plate2: [Point, Point] = [new Point(), new Point()];
@@ -65,6 +67,15 @@ export class CapacitorElm extends SimElement {
     this.voltdiff = vd;
   }
 
+  // Phasor mode: Z_C = 1/(jωC) → Y = jωC.
+  override stampPhasor(sim: SimulationManager, omega: number): void {
+    this.yPhasor = new Complex(0, omega * this.capacitance);
+    sim.stampAdmittance(this.nodes[0], this.nodes[1], this.yPhasor);
+  }
+  override calculateCurrentPhasor(): void {
+    this.currentPhasor = this.voltsPhasor[0].sub(this.voltsPhasor[1]).mul(this.yPhasor);
+  }
+
   override reset(): void {
     super.reset();
     this.voltdiff = 0;
@@ -78,15 +89,54 @@ export class CapacitorElm extends SimElement {
     g.drawLineP(this.plate1[0], this.plate1[1]);
     g.drawLineP(this.plate2[0], this.plate2[1]);
     this.doDots(g);
+    this.drawValues(g, this.canvasValueText(), 15);
     this.drawReferenceMark(g);
     this.drawPosts(g);
   }
 
+  // Transient: physical value "15µF". Phasor: reactance magnitude in ohms with a
+  // "-j" prefix ("-j176.839") to flag the imaginary impedance Z_C = 1/(jωC).
+  protected override canvasValueText(): string {
+    if (SimElement.analysisMode === "phasor") {
+      const w = 2 * Math.PI * SimElement.analysisFrequency;
+      const xc = w > 0 ? 1 / (w * this.capacitance) : 0;
+      return "-j" + getShortUnitText(xc, "");
+    }
+    return getShortUnitText(this.capacitance, "F");
+  }
+
+  // Phasor edit only: whether the value field is shown/entered as impedance (Ω)
+  // vs the physical value (F). The element always stores farads; Ω is derived.
+  private editUnitOhm = true;
+  override beginEdit(): void {
+    this.editUnitOhm = true; // default to Ω each time the dialog opens
+  }
+
   override getEditInfo(n: number): EditInfo | null {
-    return n === 0 ? new EditInfo("Capacitance (F)", this.capacitance) : null;
+    if (n !== 0) return null;
+    if (SimElement.analysisMode !== "phasor") {
+      return new EditInfo("Capacitance (F)", this.capacitance);
+    }
+    const w = 2 * Math.PI * SimElement.analysisFrequency;
+    const xc = w > 0 ? 1 / (w * this.capacitance) : 0; // |XC| = 1/(ωC)
+    const ei = this.editUnitOhm
+      ? new EditInfo("Impedance (Ω)", xc)
+      : new EditInfo("Capacitance (F)", this.capacitance);
+    ei.unitChoices = ["Ω", "F"];
+    ei.unitChoiceIndex = this.editUnitOhm ? 0 : 1;
+    return ei;
   }
   override setEditValue(n: number, value: number): void {
-    if (n === 0 && value > 0) this.capacitance = value;
+    if (n !== 0 || value <= 0) return;
+    if (SimElement.analysisMode === "phasor" && this.editUnitOhm) {
+      const w = 2 * Math.PI * SimElement.analysisFrequency;
+      if (w > 0) this.capacitance = 1 / (w * value); // XC = 1/(ωC)  ->  C = 1/(ωXC)
+    } else {
+      this.capacitance = value; // physical farads
+    }
+  }
+  override setEditUnit(n: number, choiceIndex: number): void {
+    if (n === 0) this.editUnitOhm = choiceIndex === 0;
   }
 
   override getDumpAttributes(): number[] {
@@ -103,6 +153,18 @@ export class CapacitorElm extends SimElement {
       this.voltageDiffInfo(),
       "C = " + getUnitText(this.capacitance, "F"),
       this.powerInfo(),
+    ];
+  }
+
+  override getInfoPhasor(): string[] {
+    const xc = this.yPhasor.abs() === 0 ? 0 : 1 / this.yPhasor.abs();
+    return [
+      "Capacitor",
+      this.currentInfoPhasor(),
+      this.voltageDiffInfoPhasor(),
+      "C = " + getUnitText(this.capacitance, "F"),
+      "XC = " + getUnitText(xc, "Ω"),
+      this.powerInfoPhasor(),
     ];
   }
 }

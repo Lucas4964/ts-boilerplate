@@ -7,8 +7,9 @@ modern **TypeScript + HTML + Canvas**, preserving the *patterns* — orchestrato
 managers, element base + registry, MNA engine, render loop — without the GWT
 toolchain.
 
-The included reference domain is a small **circuit simulator** with seven
-elements (resistor, capacitor, inductor, transformer, DC/AC sources, ground).
+The included reference domain is a small **circuit simulator** with a dozen
+elements (wire, resistor, capacitor, inductor, single- and three-phase
+transformers, DC/AC sources, ground, and voltage/differential/current probes).
 Swap the domain by replacing the engine + elements behind the same seams.
 
 ## Quick start
@@ -28,13 +29,20 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
 ## Using it
 
 - **Toolbar:** Run/Stop, Reset, a **Select** tool, one button per element, Delete,
-  Clear, Export/Import (plain text), **Zoom +/−/Reset View**, and a Speed slider.
-- **Place an element:** click its toolbar button, then drag on the canvas
-  (a plain click drops a default-sized one). The tool reverts to Select after.
+  Clear, Export/Import (plain text), **Zoom +/−/Reset View**, an **analysis mode
+  toggle (Transient / Phasor)** with a frequency field, and a Speed slider.
+- **Place an element:** click its toolbar button (or press its **shortcut key**,
+  below), then drag on the canvas (a plain click drops a default-sized one). The
+  tool reverts to Select after — except **Wire**, which stays active so you can
+  chain many segments; leave it with **Esc** or a **right-click**.
 - **Connect elements** by overlapping their endpoints on the same grid point,
   or run a **Wire** between them (a wire merges its two endpoints into one node).
   Multiple **Ground** symbols also all share node 0.
-- **Select/move:** Select tool, click an element, drag the body to move it.
+- **Select/move:** Select tool, click an element, drag the body to move it. Hit
+  areas hug each component's **real shape** — the line/leads for R/L/C and wires,
+  the circle for a source, the box for a transformer — so adjacent parts don't
+  steal each other's clicks. Drag on **empty space** to rubber-band a **selection
+  box** — every element it touches is selected (then **Delete** removes them all).
 - **Expand/compress:** drag an element's **endpoint handle** to lengthen or
   shorten it (resize one terminal while the other stays put). Ground is a
   single-terminal symbol but still exposes both ends, so you can stretch and
@@ -45,16 +53,63 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
   (current, voltage drop, value, power, and the circuit operating frequency `fo`
   when an AC source is present) in a panel at the bottom-right — the analog of
   CircuitJS's info overlay.
-- **Voltage reference dot:** R/L/C draw a small **white dot** beside one
+- **Value labels:** R/L/C print their value next to the body (always drawn
+  horizontally, so they stay legible at any orientation). Transient mode shows
+  the physical value with its unit (`1H`, `15µF`, `10`); phasor mode shows the
+  impedance in ohms, with a `j` prefix on inductors (`j377`) and `-j` on
+  capacitors (`-j265`) to flag the complex reactance.
+- **Voltage reference mark:** R/L/C draw a small white **`*`** beside one
   terminal — the *positive* reference node. The panel shows
-  `Vd = V(dot terminal) − V(other)`, so a sign tells you the orientation
-  relative to the dot. For sources the reference is the `+` terminal, so a
-  normally-biased source reads a positive voltage.
+  `Vd = V(* terminal) − V(other)`, so a sign tells you the orientation
+  relative to the mark. **Sources** also mark their `+` terminal (so an AC
+  source's polarity is visible, not just the DC `+/−` glyphs), and a
+  normally-biased source reads a positive voltage. The **transformer** marks
+  each winding's reference terminal (primary and secondary), i.e. the classic
+  **dot convention**: `V1`/`V2` are measured `*`→un-`*`, so if a primary `*` is
+  wired to a source's `−` terminal you'll read `V1 = −V_source` (`5 ∠ 180°`) —
+  flip the connection (now visible) to read it in phase.
+- **Measurement probes** (no series insertion, no topology change):
+  - **V Probe** (1 click): absolute node voltage, `V = V(point) − ground`.
+  - **ΔV Probe** (two clicks, point A then B): differential `Vab = V(a) − V(b)`;
+    the A—B span is drawn dashed because it is a *measurement*, not a wire.
+  - **I Probe** (1 click): a clamp that reads the current of the **specific
+    terminal** it sits on — so clamping terminal B of a 3φ transformer reads B's
+    line current, not A's. It binds to the nearest current-carrying terminal
+    (wires/ground carry no measurable branch current, so they're skipped).
+  All probes show the reading on canvas and in the info panel, in polar form in
+  phasor mode.
+- **Analysis modes:** **Transient** (default) runs the time-domain solver
+  described below. **Phasor** does a single AC steady-state solve at the global
+  frequency in the toolbar: R/L/C become complex impedances (`Z_L = jωL`,
+  `Z_C = 1/jωC`), sources are phasors (magnitude ∠ phase), and the info panel
+  shows every quantity in **polar form** (`mag ∠ angle°`), including complex
+  power `S = V·conj(I)`. Switching modes keeps the same circuit. All elements
+  (including the transformer) work in both modes. Mode-specific behaviour:
+  - **Cosine convention:** the AC source is `v(t) = Vm·cos(ωt+φ)`, so its phasor
+    is `Vm∠φ` — matching textbooks (Sadiku). Enter magnitude/phase straight from
+    the book; transient and phasor agree.
+  - **Frequency field** (`f (Hz)`) is editable only in phasor mode; in transient
+    it is disabled. All AC sources share this one global frequency, so an AC
+    source's own frequency field shows it read-only while in phasor mode.
+  - **DC sources** can't be inserted in phasor mode (a DC source has no phasor);
+    any existing one is treated as a short circuit (0 V) per superposition.
+  - **Inductors/capacitors** can be edited by **impedance (Ω)** or physical value
+    (H/F) via a unit combobox in the edit dialog (phasor mode only, default Ω).
+    The stored value is always physical; the Ω view is derived from the global
+    frequency. Transient mode shows the dialog exactly as before (no combobox).
 - **Edit properties:** double-click an element to open the edit dialog. Changes
   preview live; **OK** commits, **Cancel**/**Esc** reverts. Fields accept unit
-  strings like `4.7k`, `100n`, `2.2M`.
+  strings like `4.7k`, `100n`, `2.2M`. The **coupling coefficient** is shown at
+  **full precision** (no rounding) — it is sensitive enough that `0.9999999` must
+  not collapse to `1`.
+- **Number display:** computed quantities show **up to 4 decimal places** with
+  trailing zeros trimmed (`6.5000` → `6.5`, `5.0000` → `5`), in the info panel,
+  the on-canvas value labels, and the polar readouts.
 - **Keys:** Space = run/stop, Delete = remove selected, Ctrl/Cmd+Z = undo,
-  `+`/`−` = zoom, `0`/Home = reset view, Esc = Select tool.
+  `+`/`−` = zoom, `0`/Home = reset view, Esc = Select tool. **Insertion shortcuts**
+  (case-insensitive): **W** = Wire, **R** = Resistor, **L** = Inductor,
+  **C** = Capacitor, **T** = Transformer, **G** = Ground, **V** = DC source
+  (ignored in phasor mode, and while typing in a field).
 
 ## Architecture
 
@@ -62,8 +117,9 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
 |---|---|---|
 | Bootstrap | `src/index.ts` | builds the `Simulator`, loads a demo |
 | Orchestrator | `src/core/Simulator.ts` | owns the element list + managers (the `CirSim` analog); holds the pan/zoom view transform |
-| MNA engine | `src/core/SimulationManager.ts` | `analyzeCircuit` / `stampCircuit` / `runCircuit` + `stamp*` |
-| Linear solver | `src/core/matrix/Lu.ts` | dense LU factor/solve |
+| MNA engine | `src/core/SimulationManager.ts` | transient: `analyzeCircuit` / `stampCircuit` / `runCircuit` + `stamp*`; phasor: `solvePhasor` + complex `stamp*C` |
+| Linear solver | `src/core/matrix/Lu.ts`, `LuComplex.ts` | dense LU factor/solve — real (transient) and complex (phasor) |
+| Complex numbers | `src/core/Complex.ts` | immutable complex type for the phasor mode |
 | Render loop | `src/ui/UIManager.ts` | `requestAnimationFrame`: analyze → stamp → run → draw; applies the view transform + draws the info panel |
 | Canvas wrapper | `src/ui/Graphics.ts` | thin layer over `CanvasRenderingContext2D` |
 | Input | `src/ui/MouseManager.ts` | place / select / move / resize (endpoint drag) / pan / wheel-zoom / edit |
@@ -72,7 +128,7 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
 | Toolbar | `src/ui/Menus.ts` | builds toolbar from the registry |
 | Element base | `src/elements/SimElement.ts` | the lifecycle contract |
 | Element registry | `src/elements/ElementRegistry.ts` | runtime replacement for the GWT generator |
-| Elements | `src/elements/*Elm.ts` | the 8 starter elements (incl. an ideal Wire) |
+| Elements | `src/elements/*Elm.ts` | the starter elements (incl. an ideal Wire and measurement probes) |
 | Serialization | `src/io/Serializer.ts` | text dump/load round-trip |
 | i18n | `src/i18n/Locale.ts` | string-catalog shim |
 
@@ -84,6 +140,12 @@ voltage-source rows, then `stampCircuit()` fills and LU-factors the constant
 matrix. While running, `runCircuit()` advances time: per step it calls
 `startIteration()` (refresh companion sources), rebuilds the right-hand side via
 each element's `doStep()`, back-solves, and distributes node voltages.
+
+In **phasor mode** the same `analyzeCircuit()` node assignment is reused, but
+instead of time-stepping, `solvePhasor()` builds a **complex** MNA system
+(`[Y]{V}={I}` via each element's `stampPhasor(ω)`), factors/solves it once with
+the complex LU, and distributes complex node phasors. It re-solves only when the
+circuit, the global frequency, or a value changes (`phasorDirty`).
 
 ### The element contract (how the engine talks to elements)
 
@@ -126,6 +188,57 @@ node voltages are still correct), scopes/graphing, nonlinear elements (the engin
 has a guarded re-factor branch but no convergence subloop), rotation for the
 transformer, and matrix simplification. See the reference project's
 `INTERNALS.md` for the deeper theory.
+
+For numerical robustness the engine adds a small **GMIN** conductance (1e-9 S)
+from every node to ground (as SPICE does), so a floating subcircuit — e.g. a
+transformer's galvanically-isolated secondary — stays solvable instead of
+producing a singular matrix. A loop of *ideal* voltage sources is still singular
+(its indeterminacy is in the source rows, not to ground) and is reported as
+such — add a series resistance, as you would in SPICE.
+
+The transformer follows SPICE's model (ngspice's coupled mutual inductors): the
+*branch-current* formulation — each winding is a current unknown with a branch
+equation `V = jωL·I + jωM·I_other` (phasor) / trapezoidal companion (transient),
+`M = k·√(L1·L2)`. Because it never inverts `[L]`, it stays well-conditioned up to
+ideal coupling (`k = 1`).
+
+### Three-phase transformer
+
+`3φ Transformer` is a single **6-terminal** block (posts 0–2 = primary A/B/C on
+the left, 3–5 = secondary a/b/c on the right). The winding topology is **not**
+drawn — it is chosen in the edit dialog by a **vector-group** combobox (connection
++ clock number: `Yy0, Dy11, Dy1, Yd11, Dd0`). Internally it is a *bank* of three
+coupled single-phase units reusing the same branch-current model, so each phase is
+**exactly** the single-phase transformer above (verified: the block is numerically
+identical to three discrete single-phase transformers wired the same way). The
+connection only decides how each winding's two ends map onto the line terminals /
+neutral:
+
+- **Y**: `line_i ↔ neutral` (neutral = ground when grounded, else an internal
+  floating node kept solvable by GMIN);
+- **Δ⁺**: `line_i ↔ line_(i+1)`, **Δ⁻**: `line_i ↔ line_(i+2)` — the two delta
+  orientations are what produce the ±30° clock shift (Δ puts the *line-to-line*
+  voltage across the winding).
+
+- **Neutral grounding** is a separate per-Y-side toggle in the dialog
+  (`Primary/Secondary neutral = Grounded | Isolated`, shown only for a Y side;
+  **default Grounded**). The drawn name reflects it — `Yy0` with both neutrals
+  grounded shows as **`YNyn0`**. An **isolated** Y neutral floats: with an
+  *unbalanced* load it shifts (the classic Yy neutral instability), so the phase
+  voltages go unbalanced even at 1:1 — that is correct physics, not a bug (the
+  discrete-transformer bank does the same). Grounding the neutral makes each phase
+  independent, so a grounded 1:1 holds the secondary at the primary.
+- **Info panel:** every phase, grouped by side — `Vp/Vs` (line-to-ground) and
+  `Ip/Is` (line currents) for A/B/C, in polar form in phasor mode.
+
+The editable **ratio is the nameplate line-to-line voltage ratio** `VLLp:VLLs`;
+the √3 between line and winding voltage on a Δ side is folded into the per-unit
+turns ratio internally, so a `1:1` group reads a unity line-to-neutral magnitude
+with the correct shift. Limitations: it is a *bank* model (no zero-sequence
+magnetic coupling of a 3-limb core); leakage is tied to the coupling coefficient
+(`L_sc = L·(1−k²)`), so with small loads a low `k` noticeably loads the secondary —
+raise `k` toward 1 for a near-ideal 1:1. A **Δ–Δ at exactly `k = 1`** leaves the
+delta circulating current indeterminate (singular) — use a realistic `k < 1`.
 
 ## License
 

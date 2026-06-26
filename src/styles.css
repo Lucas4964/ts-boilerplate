@@ -72,9 +72,27 @@ body {
   color: #fff;
 }
 
+#toolbar button:disabled,
+#toolbar input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+#toolbar button:disabled:hover {
+  border-color: var(--toolbar-border);
+}
+
 #toolbar .label {
   font-size: 12px;
   opacity: 0.7;
+}
+
+#toolbar .freq-input {
+  width: 64px;
+  padding: 4px 6px;
+  background: var(--toolbar-bg);
+  color: var(--toolbar-fg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 4px;
 }
 
 #canvas {
@@ -148,6 +166,25 @@ body {
 .dialog .field input:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.dialog .field input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dialog .field select {
+  background: #15171b;
+  color: var(--toolbar-fg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 4px;
+  padding: 5px 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+/* leave room for the unit combobox without overflowing the dialog */
+.dialog .field:has(select) input {
+  width: 90px;
 }
 
 .dialog .buttons {

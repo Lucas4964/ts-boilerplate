@@ -2,6 +2,7 @@ import type { Simulator } from "../core/Simulator";
 import { SimElement } from "../elements/SimElement";
 import { ElementRegistry } from "../elements/ElementRegistry";
 import { EditDialog } from "./EditDialog";
+import { Rectangle } from "../geom/Point";
 
 // Screen-pixel radius for grabbing an element's endpoint handle (to resize it)
 // and for hit-testing a thin element body. Both are converted to world units.
@@ -22,6 +23,11 @@ export class MouseManager {
   private lastGY = 0;
   private lastSX = 0;
   private lastSY = 0;
+  // Two-click placement in progress (e.g. the differential probe: A then B).
+  private twoClickPending: SimElement | null = null;
+  // Rubber-band area selection: drag start (world) + the current rect (world).
+  private selStart: { x: number; y: number } | null = null;
+  selectionRect: Rectangle | null = null;
 
   constructor(sim: Simulator) {
     this.sim = sim;
@@ -50,8 +56,14 @@ export class MouseManager {
   }
 
   private onDown(e: PointerEvent): void {
-    // Middle or right button => pan the view.
+    // Middle button always pans. Right button: in a placement tool it exits the
+    // tool (so a Wire chain ends on right-click); in Select it pans.
     if (e.button === 1 || e.button === 2) {
+      if (e.button === 2 && this.sim.mouseMode !== "select") {
+        this.sim.setMouseMode("select"); // cancels any two-click in progress
+        e.preventDefault();
+        return;
+      }
       const s = this.screenPos(e);
       this.panning = true;
       this.lastSX = s.x;
@@ -69,14 +81,7 @@ export class MouseManager {
     this.sim.canvas.setPointerCapture(e.pointerId);
 
     if (this.sim.mouseMode !== "select") {
-      const el = ElementRegistry.createByName(this.sim.mouseMode, gx, gy);
-      if (el) {
-        this.sim.commands.pushUndo();
-        this.sim.clearSelection();
-        el.selected = true;
-        this.sim.addElement(el);
-        this.draggingNew = el;
-      }
+      this.onPlaceDown(gx, gy);
       return;
     }
 
@@ -93,6 +98,45 @@ export class MouseManager {
       }
       this.lastGX = gx;
       this.lastGY = gy;
+    } else {
+      // empty space: begin a rubber-band area selection
+      this.selStart = { x: w.x, y: w.y };
+      this.selectionRect = new Rectangle(w.x, w.y, 0, 0);
+    }
+  }
+
+  /** Handle a left-press while a placement tool is active. */
+  private onPlaceDown(gx: number, gy: number): void {
+    // Second click of a two-click placement (e.g. diff probe): set B, finalize.
+    if (this.twoClickPending) {
+      const el = this.twoClickPending;
+      el.setPosition(el.x, el.y, gx, gy); // point1 stays at A, point2 = B
+      this.twoClickPending = null; // clear before mode change so it isn't cancelled
+      this.sim.setMouseMode("select");
+      this.sim.needAnalyze();
+      return;
+    }
+    const el = ElementRegistry.createByName(this.sim.mouseMode, gx, gy);
+    if (!el) return;
+    this.sim.commands.pushUndo();
+    this.sim.clearSelection();
+    el.selected = true;
+    this.sim.addElement(el);
+    if (el.usesTwoClickPlacement()) {
+      el.setPosition(gx, gy, gx, gy); // anchor A; B follows the cursor until click 2
+      this.twoClickPending = el;
+    } else {
+      this.draggingNew = el; // press-drag-release sets the far endpoint
+    }
+  }
+
+  /** Drop a half-finished two-click placement (called when the mode changes). */
+  cancelPending(): void {
+    if (this.twoClickPending) {
+      const pending = this.twoClickPending;
+      this.twoClickPending = null;
+      this.sim.elmList = this.sim.elmList.filter((el) => el !== pending);
+      this.sim.needAnalyze();
     }
   }
 
@@ -108,6 +152,20 @@ export class MouseManager {
     const w = this.worldPos(e);
     const gx = this.sim.snap(w.x);
     const gy = this.sim.snap(w.y);
+
+    if (this.selStart) {
+      // grow the rubber-band rectangle (normalized, world coords)
+      const x = Math.min(this.selStart.x, w.x);
+      const y = Math.min(this.selStart.y, w.y);
+      this.selectionRect = new Rectangle(x, y, Math.abs(w.x - this.selStart.x), Math.abs(w.y - this.selStart.y));
+      return;
+    }
+
+    if (this.twoClickPending) {
+      this.twoClickPending.drag(gx, gy); // preview B following the cursor
+      this.sim.needAnalyze();
+      return;
+    }
 
     if (this.draggingNew) {
       this.draggingNew.drag(gx, gy);
@@ -138,9 +196,25 @@ export class MouseManager {
         const o = this.draggingNew.getDefaultDragOffset();
         this.draggingNew.drag(this.draggingNew.x + o.dx, this.draggingNew.y + o.dy);
       }
+      const placed = this.draggingNew;
       this.draggingNew = null;
-      this.sim.setMouseMode("select"); // revert to select after placing one
+      // The Wire tool stays active for rapid chaining (exit with Esc or right
+      // button); every other tool reverts to Select after placing one.
+      if (!placed.isWire()) this.sim.setMouseMode("select");
       this.sim.needAnalyze();
+    }
+    if (this.selStart) {
+      // Finalize the rubber-band, but only if the user actually dragged a box —
+      // a plain click on empty space must select nothing (a zero-area rect would
+      // otherwise catch any element whose bounding box covers the click point).
+      const r = this.selectionRect;
+      if (r && (r.width > 2 || r.height > 2)) {
+        for (const el of this.sim.elmList) {
+          if (el.getBoundingBox().intersects(r)) el.selected = true;
+        }
+      }
+      this.selStart = null;
+      this.selectionRect = null;
     }
     this.movingElement = null;
     this.movingHandle = null;
@@ -169,18 +243,17 @@ export class MouseManager {
   private findElementAt(wx: number, wy: number): SimElement | null {
     const list = this.sim.elmList;
     const tol = BODY_HIT_PX / this.sim.scale;
-    // Pick the *closest* element rather than the first whose box contains the
-    // point. A click inside an area element's body counts as distance 0, so
-    // round/wide parts stay easy to grab; thin parts (wires) are matched only
-    // by proximity to their drawn line. Iterating from the top of the z-order
-    // means the frontmost element wins ties.
+    // Pick the *closest* element by its shape-accurate distance (distanceTo
+    // returns 0 inside a solid body, the perpendicular distance to the drawn
+    // line/edge otherwise). A small `tol` adds a comfortable grab margin without
+    // the old padded-rectangle halo that made neighbours overlap. Iterating from
+    // the top of the z-order means the frontmost element wins ties.
     let best: SimElement | null = null;
     let bestDist = Infinity;
     for (let i = list.length - 1; i >= 0; i--) {
       const e = list[i];
-      const inside = e.boundingBoxSelectable() && e.getBoundingBox().contains(wx, wy);
-      const dist = inside ? 0 : e.distanceTo(wx, wy);
-      if (dist < tol && dist < bestDist) {
+      const dist = e.distanceTo(wx, wy);
+      if (dist <= tol && dist < bestDist) {
         best = e;
         bestDist = dist;
       }

@@ -8,6 +8,8 @@ export class Menus {
   private sim: Simulator;
   private runButton!: HTMLButtonElement;
   private modeButtons = new Map<string, HTMLButtonElement>();
+  private analysisButtons = new Map<string, HTMLButtonElement>();
+  private freqInput!: HTMLInputElement;
 
   constructor(sim: Simulator) {
     this.sim = sim;
@@ -43,6 +45,31 @@ export class Menus {
     this.button(viewG, "Zoom −", () => this.sim.commands.perform("zoom-out"));
     this.button(viewG, "Reset View", () => this.sim.commands.perform("reset-view"));
 
+    // Analysis mode: time-domain transient vs AC steady-state phasor + the
+    // global analysis frequency that drives the reactances in phasor mode.
+    const anG = this.group(tb);
+    this.analysisButtons.set(
+      "transient",
+      this.button(anG, "Transient", () => this.sim.commands.perform("analysis:transient")),
+    );
+    this.analysisButtons.set(
+      "phasor",
+      this.button(anG, "Phasor", () => this.sim.commands.perform("analysis:phasor")),
+    );
+    this.label(anG, "f (Hz)");
+    const freq = document.createElement("input");
+    freq.type = "number";
+    freq.min = "0";
+    freq.step = "any";
+    freq.value = String(this.sim.sim.analysisFrequency);
+    freq.className = "freq-input";
+    freq.addEventListener("input", () => {
+      const v = Number(freq.value);
+      if (Number.isFinite(v) && v > 0) this.sim.sim.setAnalysisFrequency(v);
+    });
+    anG.appendChild(freq);
+    this.freqInput = freq;
+
     const speedG = this.group(tb);
     this.label(speedG, "Speed");
     const slider = document.createElement("input");
@@ -59,6 +86,20 @@ export class Menus {
 
     this.updateRunButton(this.sim.simRunning);
     this.updateModeButtons(this.sim.mouseMode);
+    this.updateForAnalysisMode(this.sim.sim.analysisMode);
+  }
+
+  /** Sync the toolbar to the analysis mode: highlight the active button, enable
+   *  the global frequency only in phasor mode, and disable the DC-source button
+   *  in phasor mode (a DC source has no phasor — it can't be inserted there). */
+  updateForAnalysisMode(mode: string): void {
+    const phasor = mode === "phasor";
+    for (const [name, btn] of this.analysisButtons) {
+      btn.classList.toggle("active", name === mode);
+    }
+    this.freqInput.disabled = !phasor;
+    const dc = this.modeButtons.get("DCVoltageElm");
+    if (dc) dc.disabled = phasor;
   }
 
   updateRunButton(running: boolean): void {

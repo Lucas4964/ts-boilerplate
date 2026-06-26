@@ -158,6 +158,7 @@ export class Simulator {
   }
 
   setMouseMode(mode: string): void {
+    this.mouse.cancelPending(); // drop any half-finished two-click placement
     this.mouseMode = mode;
     this.menus.updateModeButtons(mode);
   }

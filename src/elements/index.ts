@@ -6,9 +6,13 @@ import "./ResistorElm";
 import "./CapacitorElm";
 import "./InductorElm";
 import "./TransformerElm";
+import "./ThreePhaseTransformerElm";
 import "./DCVoltageElm";
 import "./ACVoltageElm";
 import "./GroundElm";
+import "./VoltageProbeElm";
+import "./DiffVoltageProbeElm";
+import "./CurrentProbeElm";
 
 export { ElementRegistry, registerElement } from "./ElementRegistry";
 export { SimElement } from "./SimElement";

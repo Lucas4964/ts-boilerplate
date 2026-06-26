@@ -46,16 +46,29 @@ export class UIManager {
       s.sim.analyzeCircuit(s.elmList);
       s.analyzeFlag = false;
     }
-    if (s.sim.needsStamp && s.simRunning && s.sim.stopMessage == null) {
-      s.sim.stampCircuit();
+
+    if (s.sim.analysisMode === "phasor") {
+      // AC steady state: a single complex solve, recomputed only when the
+      // circuit, frequency or a value changed. No time-stepping, no dot anim.
+      if (s.sim.phasorDirty && s.sim.stopMessage == null) {
+        s.sim.solvePhasor();
+      }
+      SimElement.currentMult = 0;
+    } else {
+      if (s.sim.needsStamp && s.simRunning && s.sim.stopMessage == null) {
+        s.sim.stampCircuit();
+      }
+      if (s.simRunning && s.sim.stopMessage == null && s.sim.matrixSize >= 0) {
+        s.sim.runCircuit();
+      }
+      // dot-animation speed: proportional to current; 0 when paused
+      SimElement.currentMult = s.simRunning && s.sim.stopMessage == null ? 60 * s.speed : 0;
     }
 
-    if (s.simRunning && s.sim.stopMessage == null && s.sim.matrixSize >= 0) {
-      s.sim.runCircuit();
-    }
-
-    // dot-animation speed: proportional to current; 0 when paused
-    SimElement.currentMult = s.simRunning && s.sim.stopMessage == null ? 60 * s.speed : 0;
+    // Mirror the analysis state so each element's draw()/canvasValueText() can
+    // label itself for the current mode (physical units vs jXL/-jXC in ohms).
+    SimElement.analysisMode = s.sim.analysisMode;
+    SimElement.analysisFrequency = s.sim.analysisFrequency;
 
     this.draw();
     this.updateInfobar();
@@ -82,6 +95,16 @@ export class UIManager {
     );
     this.drawGrid(g);
     for (const e of s.elmList) e.draw(g);
+
+    // 3) rubber-band area-selection rectangle (dashed cyan), in world space
+    const sel = s.mouse.selectionRect;
+    if (sel) {
+      g.setColor("#00ffff");
+      g.setLineWidth(1 / s.scale);
+      g.setLineDash(4 / s.scale, 4 / s.scale);
+      g.drawRect(sel.x, sel.y, sel.width, sel.height);
+      g.setLineDash(0, 0);
+    }
   }
 
   private drawGrid(g: Graphics): void {
@@ -108,11 +131,13 @@ export class UIManager {
     if (s.sim.stopMessage) {
       s.infobarEl.textContent = "⚠ " + s.sim.stopMessage;
     } else {
-      const t = s.sim.time;
       const zoom = Math.round(s.scale * 100);
+      const left =
+        s.sim.analysisMode === "phasor"
+          ? `phasor    f = ${getUnitText(s.sim.analysisFrequency, "Hz")}`
+          : `t = ${s.sim.time.toExponential(3)} s    ${s.simRunning ? "running" : "paused"}`;
       s.infobarEl.textContent =
-        `t = ${t.toExponential(3)} s    elements: ${s.elmList.length}    ` +
-        `${s.simRunning ? "running" : "paused"}    mode: ${s.mouseMode}    zoom: ${zoom}%`;
+        `${left}    elements: ${s.elmList.length}    mode: ${s.mouseMode}    zoom: ${zoom}%`;
     }
     this.updateInfoPanel();
   }
@@ -128,9 +153,13 @@ export class UIManager {
       panel.style.display = "none";
       return;
     }
-    const lines = sel.getInfo().slice();
-    const fo = s.operatingFrequency();
-    if (fo > 0) lines.push("fo = " + getUnitText(fo, "Hz"));
+    const lines = (s.sim.analysisMode === "phasor" ? sel.getInfoPhasor() : sel.getInfo()).slice();
+    if (s.sim.analysisMode === "phasor") {
+      lines.push("fo = " + getUnitText(s.sim.analysisFrequency, "Hz"));
+    } else {
+      const fo = s.operatingFrequency();
+      if (fo > 0) lines.push("fo = " + getUnitText(fo, "Hz"));
+    }
 
     panel.replaceChildren();
     for (let i = 0; i < lines.length; i++) {

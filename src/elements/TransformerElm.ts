@@ -1,32 +1,40 @@
 import { SimElement } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
-import { Point } from "../geom/Point";
+import { Point, distanceToRect } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
 import { registerElement } from "./ElementRegistry";
-import { getUnitText } from "../util/format";
+import { getUnitText, formatPolar, round4 } from "../util/format";
+import { Complex } from "../core/Complex";
 import type { SimulationManager } from "../core/SimulationManager";
 
-// Ideal-ish transformer: two magnetically-coupled inductors. The companion
-// model is the trapezoidal discretization of the 2x2 inductance matrix
-//   [v1; v2] = [L1 M; M L2] d/dt [i1; i2]
-// stamped as two conductances + two voltage-controlled current sources, plus a
-// pair of companion current sources updated each step. couplingCoef≈1 makes it
-// behave as a near-ideal transformer with turns ratio `ratio`.
+// Transformer = two magnetically-coupled inductors, modelled exactly like SPICE
+// (ngspice mut/ind): the *branch-current* (impedance) formulation. Each winding
+// adds a current unknown (reusing the engine's voltage-source rows) and a branch
+// equation:
+//   transient:  V(p)−V(n) = req·I + reqM·I_other + veq      (trapezoidal companion)
+//   phasor:     V(p)−V(n) = jωL·I + jωM·I_other
+// with M = k·√(L1·L2). Unlike a Norton/admittance form, this never inverts [L],
+// so it stays well-conditioned up to ideal coupling (k→1).
+//
+// Posts: 0 = primary top, 1 = primary bottom, 2 = secondary top, 3 = secondary bottom.
+// L1 = inductance, L2 = inductance·ratio², so `ratio` is the turns ratio √(L2/L1).
 export class TransformerElm extends SimElement {
-  inductance = 4; // primary inductance (H)
+  inductance = 4; // primary inductance L1 (H)
   ratio = 1; // secondary / primary turns
   couplingCoef = 0.999;
 
-  // companion admittance matrix entries (set in stamp)
-  private a1 = 0;
-  private a2 = 0;
-  private a3 = 0;
-  private a4 = 0;
-  private curSourceValue1 = 0;
-  private curSourceValue2 = 0;
-  private currents: [number, number] = [0, 0];
+  // transient companion resistances (set in stamp) + history sources
+  private req1 = 0;
+  private req2 = 0;
+  private reqM = 0;
+  private veq1 = 0;
+  private veq2 = 0;
+  private currents: [number, number] = [0, 0]; // solved branch currents [I1, I2]
   private curcount1 = 0;
   private curcount2 = 0;
+
+  // phasor-mode solved branch currents
+  private currentPhasor2 = Complex.ZERO; // secondary (currentPhasor holds primary)
 
   private posts: Point[] = [new Point(), new Point(), new Point(), new Point()];
 
@@ -38,6 +46,29 @@ export class TransformerElm extends SimElement {
   }
   override getPost(n: number): Point {
     return this.posts[n];
+  }
+
+  // Hit-test by the body rectangle spanning the four posts (primary left edge to
+  // secondary right edge), so the whole block is grabbable but nearby elements
+  // are not caught by a padded halo.
+  override distanceTo(px: number, py: number): number {
+    return distanceToRect(px, py, this.posts[0].x, this.posts[0].y, this.posts[3].x, this.posts[3].y);
+  }
+
+  // Two branch currents (primary, secondary) as extra MNA unknowns.
+  override getVoltageSourceCount(): number {
+    return 2;
+  }
+  override setVoltageSource(n: number, vs: number): void {
+    if (n === 0) this.voltSource = vs; // base id; secondary is voltSource+1
+  }
+
+  /** Effective L1, L2, M from the editable (inductance, ratio, coupling). */
+  private inductances(): { l1: number; l2: number; m: number } {
+    const l1 = this.inductance;
+    const l2 = this.inductance * this.ratio * this.ratio;
+    const m = this.couplingCoef * Math.sqrt(l1 * l2);
+    return { l1, l2, m };
   }
 
   override setPoints(): void {
@@ -55,50 +86,117 @@ export class TransformerElm extends SimElement {
     ];
   }
 
+  // --- transient (branch-current companion) ---------------------------------
+
   override stamp(sim: SimulationManager): void {
-    const l1 = this.inductance;
-    const l2 = this.inductance * this.ratio * this.ratio;
-    const m = this.couplingCoef * Math.sqrt(l1 * l2);
-    const deti = 1 / (l1 * l2 - m * m);
-    const ts = sim.timeStep / 2; // trapezoidal
-    this.a1 = l2 * deti * ts;
-    this.a2 = -m * deti * ts;
-    this.a3 = -m * deti * ts;
-    this.a4 = l1 * deti * ts;
-    sim.stampConductance(this.nodes[0], this.nodes[1], this.a1);
-    sim.stampVCCurrentSource(this.nodes[0], this.nodes[1], this.nodes[2], this.nodes[3], this.a2);
-    sim.stampVCCurrentSource(this.nodes[2], this.nodes[3], this.nodes[0], this.nodes[1], this.a3);
-    sim.stampConductance(this.nodes[2], this.nodes[3], this.a4);
+    const { l1, l2, m } = this.inductances();
+    const k = 2 / sim.timeStep; // trapezoidal: req = 2L/dt
+    this.req1 = k * l1;
+    this.req2 = k * l2;
+    this.reqM = k * m;
+    const vn1 = sim.nodeCount + this.voltSource;
+    const vn2 = vn1 + 1;
+    this.stampBranch(sim, this.nodes[0], this.nodes[1], vn1, vn2, this.req1, this.reqM);
+    this.stampBranch(sim, this.nodes[2], this.nodes[3], vn2, vn1, this.req2, this.reqM);
+  }
+
+  /** Stamp one winding's KCL + branch equation (constant part) into row `vn`:
+   *  KCL: I leaves `p`, enters `n`; branch eq: V(p)−V(n) − rSelf·I(vn) − rMut·I(vnOther). */
+  private stampBranch(
+    sim: SimulationManager,
+    p: number,
+    n: number,
+    vn: number,
+    vnOther: number,
+    rSelf: number,
+    rMut: number,
+  ): void {
+    sim.stampMatrix(p, vn, 1);
+    sim.stampMatrix(n, vn, -1);
+    sim.stampMatrix(vn, p, 1);
+    sim.stampMatrix(vn, n, -1);
+    sim.stampMatrix(vn, vn, -rSelf);
+    sim.stampMatrix(vn, vnOther, -rMut);
   }
 
   override startIteration(): void {
-    const vd1 = this.volts[0] - this.volts[1];
-    const vd2 = this.volts[2] - this.volts[3];
-    this.curSourceValue1 = vd1 * this.a1 + vd2 * this.a2 + this.currents[0];
-    this.curSourceValue2 = vd1 * this.a3 + vd2 * this.a4 + this.currents[1];
+    // trapezoidal history: veq = −(req·i_prev + reqM·i_other_prev + v_prev)
+    const v1p = this.volts[0] - this.volts[1];
+    const v2p = this.volts[2] - this.volts[3];
+    const i1p = this.currents[0];
+    const i2p = this.currents[1];
+    this.veq1 = -(this.req1 * i1p + this.reqM * i2p + v1p);
+    this.veq2 = -(this.reqM * i1p + this.req2 * i2p + v2p);
   }
 
   override doStep(sim: SimulationManager): void {
-    sim.stampCurrentSource(this.nodes[0], this.nodes[1], this.curSourceValue1);
-    sim.stampCurrentSource(this.nodes[2], this.nodes[3], this.curSourceValue2);
+    const vn1 = sim.nodeCount + this.voltSource;
+    sim.stampRightSide(vn1, this.veq1);
+    sim.stampRightSide(vn1 + 1, this.veq2);
   }
 
+  override setCurrent(vs: number, c: number): void {
+    this.currents[vs - this.voltSource] = c; // solved branch current
+  }
   override calculateCurrent(): void {
-    const vd1 = this.volts[0] - this.volts[1];
-    const vd2 = this.volts[2] - this.volts[3];
-    this.currents[0] = vd1 * this.a1 + vd2 * this.a2 + this.curSourceValue1;
-    this.currents[1] = vd1 * this.a3 + vd2 * this.a4 + this.curSourceValue2;
-    this.current = this.currents[0];
+    this.current = this.currents[0]; // primary, for the dot animation
+  }
+
+  // Per-terminal current (into the element): primary winding I1 enters post 0 and
+  // leaves post 1; secondary winding I2 enters post 2 and leaves post 3.
+  override getPostCurrent(n: number): number {
+    const i = n < 2 ? this.currents[0] : this.currents[1];
+    return n % 2 === 0 ? i : -i;
+  }
+  override getPostCurrentPhasor(n: number): Complex {
+    const i = n < 2 ? this.currentPhasor : this.currentPhasor2;
+    return n % 2 === 0 ? i : i.neg();
+  }
+
+  // --- phasor (branch-current, complex impedance) ---------------------------
+
+  override stampPhasor(sim: SimulationManager, omega: number): void {
+    const { l1, l2, m } = this.inductances();
+    const vn1 = sim.nodeCount + this.voltSource;
+    const vn2 = vn1 + 1;
+    // Z = jωL  ->  the branch entry is −jωL (so V = jωL·I).
+    this.stampBranchC(sim, this.nodes[0], this.nodes[1], vn1, vn2, omega * l1, omega * m);
+    this.stampBranchC(sim, this.nodes[2], this.nodes[3], vn2, vn1, omega * l2, omega * m);
+  }
+
+  private stampBranchC(
+    sim: SimulationManager,
+    p: number,
+    n: number,
+    vn: number,
+    vnOther: number,
+    xSelf: number,
+    xMut: number,
+  ): void {
+    sim.stampMatrixC(p, vn, Complex.ONE);
+    sim.stampMatrixC(n, vn, Complex.ONE.neg());
+    sim.stampMatrixC(vn, p, Complex.ONE);
+    sim.stampMatrixC(vn, n, Complex.ONE.neg());
+    sim.stampMatrixC(vn, vn, new Complex(0, -xSelf)); // −jωL
+    sim.stampMatrixC(vn, vnOther, new Complex(0, -xMut)); // −jωM
+  }
+
+  override setCurrentPhasor(vs: number, c: Complex): void {
+    if (vs - this.voltSource === 0) this.currentPhasor = c;
+    else this.currentPhasor2 = c;
   }
 
   override reset(): void {
     super.reset();
     this.currents = [0, 0];
-    this.curSourceValue1 = 0;
-    this.curSourceValue2 = 0;
+    this.veq1 = 0;
+    this.veq2 = 0;
+    this.currentPhasor2 = Complex.ZERO;
     this.curcount1 = 0;
     this.curcount2 = 0;
   }
+
+  // --- drawing --------------------------------------------------------------
 
   private drawCoil(g: Graphics, top: Point, bottom: Point, dir: number): void {
     const segs = 32;
@@ -133,19 +231,29 @@ export class TransformerElm extends SimElement {
     this.curcount2 = this.updateDotCount(this.currents[1], this.curcount2);
     this.drawDots(g, this.posts[0], this.posts[1], this.curcount1);
     this.drawDots(g, this.posts[2], this.posts[3], this.curcount2);
+    // Dot-convention markers ("*") on the (+) reference terminals: primary post 0
+    // (top-left) and secondary post 2 (top-right), nudged inward toward the core
+    // so they sit beside the coil rather than on the post. V1/V2 are measured
+    // dot→undotted, so these show why the reported sign comes out as it does.
+    this.drawRefStar(g, xL + 7, yT + 6);
+    this.drawRefStar(g, xR - 7, yT + 6);
     this.drawPosts(g);
   }
+
+  // --- editing / info -------------------------------------------------------
 
   override getEditInfo(n: number): EditInfo | null {
     if (n === 0) return new EditInfo("Primary Inductance (H)", this.inductance);
     if (n === 1) return new EditInfo("Turns Ratio", this.ratio);
-    if (n === 2) return new EditInfo("Coupling Coefficient", this.couplingCoef);
+    if (n === 2) return EditInfo.precise("Coupling Coefficient", this.couplingCoef);
     return null;
   }
   override setEditValue(n: number, value: number): void {
+    // Coupling up to 1 is allowed — the branch-current form handles ideal
+    // coupling (no det = L1L2−M² in a denominator).
     if (n === 0 && value > 0) this.inductance = value;
     else if (n === 1 && value > 0) this.ratio = value;
-    else if (n === 2 && value > 0 && value < 1) this.couplingCoef = value;
+    else if (n === 2 && value > 0 && value <= 1) this.couplingCoef = value;
   }
 
   override getDumpAttributes(): number[] {
@@ -161,9 +269,20 @@ export class TransformerElm extends SimElement {
     return [
       "Transformer",
       "L1 = " + getUnitText(this.inductance, "H"),
-      "ratio = " + this.ratio.toFixed(3),
+      "ratio = " + round4(this.ratio),
       "I1 = " + getUnitText(this.currents[0], "A"),
       "I2 = " + getUnitText(this.currents[1], "A"),
+    ];
+  }
+
+  override getInfoPhasor(): string[] {
+    return [
+      "Transformer",
+      "ratio = " + round4(this.ratio),
+      "I1 = " + formatPolar(this.currentPhasor, "A"),
+      "I2 = " + formatPolar(this.currentPhasor2, "A"),
+      "V1 = " + formatPolar(this.voltsPhasor[0].sub(this.voltsPhasor[1]), "V"),
+      "V2 = " + formatPolar(this.voltsPhasor[2].sub(this.voltsPhasor[3]), "V"),
     ];
   }
 }

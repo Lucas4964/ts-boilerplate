@@ -22,13 +22,6 @@ export class WireElm extends SimElement {
     return true;
   }
 
-  // A wire is a thin line: only clicks near the line itself should select it,
-  // not the whole (possibly large, diagonal) bounding rectangle — otherwise it
-  // steals clicks meant for components sitting near its endpoints.
-  override boundingBoxSelectable(): boolean {
-    return false;
-  }
-
   override draw(g: Graphics): void {
     this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 4);
     g.setColor(this.selected ? SimElement.selectColor : "#7ee787");

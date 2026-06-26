@@ -3,7 +3,8 @@ import { Graphics } from "../ui/Graphics";
 import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
 import { registerElement } from "./ElementRegistry";
-import { getUnitText } from "../util/format";
+import { getUnitText, getShortUnitText } from "../util/format";
+import { Complex } from "../core/Complex";
 import type { SimulationManager } from "../core/SimulationManager";
 
 // Linear resistor — the simplest element: one constant matrix stamp, current
@@ -35,6 +36,14 @@ export class ResistorElm extends SimElement {
     this.current = (this.volts[0] - this.volts[1]) / this.resistance;
   }
 
+  // Phasor mode: Z_R = R (purely real), so Y = 1/R.
+  override stampPhasor(sim: SimulationManager): void {
+    sim.stampAdmittance(this.nodes[0], this.nodes[1], new Complex(1 / this.resistance, 0));
+  }
+  override calculateCurrentPhasor(): void {
+    this.currentPhasor = this.voltsPhasor[0].sub(this.voltsPhasor[1]).scale(1 / this.resistance);
+  }
+
   override draw(g: Graphics): void {
     this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 8);
     this.draw2Leads(g);
@@ -52,8 +61,14 @@ export class ResistorElm extends SimElement {
     ys.push(this.lead2.y);
     g.drawPolyline(xs, ys, xs.length);
     this.doDots(g);
+    this.drawValues(g, this.canvasValueText(), 9);
     this.drawReferenceMark(g);
     this.drawPosts(g);
+  }
+
+  // Resistance is real ohms in both modes (the photo shows just the number).
+  protected override canvasValueText(): string {
+    return getShortUnitText(this.resistance, "");
   }
 
   override getEditInfo(n: number): EditInfo | null {
@@ -77,6 +92,16 @@ export class ResistorElm extends SimElement {
       this.voltageDiffInfo(),
       "R = " + getUnitText(this.resistance, "Ω"),
       this.powerInfo(),
+    ];
+  }
+
+  override getInfoPhasor(): string[] {
+    return [
+      "Resistor",
+      this.currentInfoPhasor(),
+      this.voltageDiffInfoPhasor(),
+      "R = " + getUnitText(this.resistance, "Ω"),
+      this.powerInfoPhasor(),
     ];
   }
 }

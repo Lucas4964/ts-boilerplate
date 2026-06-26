@@ -1,5 +1,9 @@
 import type { SimElement } from "../elements/SimElement";
 import { luFactor, luSolve } from "./matrix/Lu";
+import { Complex } from "./Complex";
+import { luFactorComplex, luSolveComplex } from "./matrix/LuComplex";
+
+export type AnalysisMode = "transient" | "phasor";
 
 // The simulation engine — a focused port of CircuitJS's SimulationManager.
 // It builds and solves the Modified Nodal Analysis (MNA) system:
@@ -26,6 +30,20 @@ export class SimulationManager {
   stepsPerFrame = 80; // simulation steps advanced per animation frame
   needsStamp = true;
   stopMessage: string | null = null;
+
+  // Minimum conductance from every node to ground (SPICE's GMIN). Keeps floating
+  // subcircuits (e.g. a transformer's isolated secondary) from making the matrix
+  // singular, with a negligible leakage (~nA). It does NOT rescue a loop of
+  // ideal voltage sources — that singularity is in the source rows, not to ground.
+  static readonly GMIN = 1e-9;
+
+  // --- phasor (AC steady-state) analysis ------------------------------------
+  analysisMode: AnalysisMode = "transient";
+  analysisFrequency = 60; // Hz — global frequency for the phasor solve
+  omega = 0; // 2π·analysisFrequency, set at the start of solvePhasor
+  phasorDirty = true; // a re-solve is needed (topology, frequency or value changed)
+  private matrixC: Complex[][] = []; // complex MNA matrix (phasor mode)
+  private rightSideC: Complex[] = []; // complex right-hand side (phasor mode)
 
   // --- analysis -------------------------------------------------------------
 
@@ -139,6 +157,11 @@ export class SimulationManager {
     this.matrixSize = this.nodeCount - 1 + this.voltageSourceCount;
     this.circuitNonLinear = elmList.some((ce) => ce.nonLinear());
     this.needsStamp = true;
+    this.phasorDirty = true;
+
+    // 4. Let measurement elements (re)bind to what they measure now that posts
+    //    and node assignments are settled (e.g. a current probe to a terminal).
+    for (const ce of elmList) ce.bindMeasurement(elmList);
   }
 
   // --- stamping -------------------------------------------------------------
@@ -148,6 +171,9 @@ export class SimulationManager {
     this.matrix = Array.from({ length: n }, () => new Array(n).fill(0));
     this.rightSide = new Array(n).fill(0);
     for (const ce of this.elmList) ce.stamp(this);
+    // GMIN: a tiny conductance from each node row to ground (node rows are the
+    // first nodeCount-1 indices; voltage-source rows are excluded).
+    for (let i = 0; i < this.nodeCount - 1; i++) this.matrix[i][i] += SimulationManager.GMIN;
 
     this.origRightSide = this.rightSide.slice();
     this.origMatrix = this.matrix.map((row) => row.slice());
@@ -155,7 +181,7 @@ export class SimulationManager {
     if (!this.circuitNonLinear && n > 0) {
       this.ipvt = new Array(n).fill(0);
       if (!luFactor(this.matrix, n, this.ipvt)) {
-        this.stop("Singular matrix — check the circuit (add a ground / complete the loops).");
+        this.stop("Singular matrix — likely a loop of ideal voltage sources (add a series resistor) or a missing ground reference.");
         return;
       }
     }
@@ -212,6 +238,41 @@ export class SimulationManager {
     this.stampRightSide(vn, v);
   }
 
+  // --- complex stamp primitives (phasor mode) -------------------------------
+  // Twins of the real primitives above, operating on the complex matrix/RHS.
+  // The ground node (0) is excluded the same way (i>0 && j>0).
+
+  stampMatrixC(i: number, j: number, x: Complex): void {
+    if (i > 0 && j > 0) this.matrixC[i - 1][j - 1] = this.matrixC[i - 1][j - 1].add(x);
+  }
+
+  stampRightSideC(i: number, x: Complex): void {
+    if (i > 0) this.rightSideC[i - 1] = this.rightSideC[i - 1].add(x);
+  }
+
+  /** Stamp a complex admittance Y between two nodes (Y = 1/Z). */
+  stampAdmittance(n1: number, n2: number, y: Complex): void {
+    this.stampMatrixC(n1, n1, y);
+    this.stampMatrixC(n2, n2, y);
+    this.stampMatrixC(n1, n2, y.neg());
+    this.stampMatrixC(n2, n1, y.neg());
+  }
+
+  stampCurrentSourceC(n1: number, n2: number, i: Complex): void {
+    this.stampRightSideC(n1, i.neg());
+    this.stampRightSideC(n2, i);
+  }
+
+  /** Stamp an independent voltage source with complex phasor `v` (V(n2)-V(n1)=v). */
+  stampVoltageSourceC(n1: number, n2: number, vs: number, v: Complex): void {
+    const vn = this.nodeCount + vs;
+    this.stampMatrixC(vn, n1, Complex.ONE.neg());
+    this.stampMatrixC(vn, n2, Complex.ONE);
+    this.stampMatrixC(n1, vn, Complex.ONE);
+    this.stampMatrixC(n2, vn, Complex.ONE.neg());
+    this.stampRightSideC(vn, v);
+  }
+
   // --- stepping -------------------------------------------------------------
 
   runCircuit(): void {
@@ -248,6 +309,53 @@ export class SimulationManager {
     }
   }
 
+  // --- phasor solve ---------------------------------------------------------
+
+  /**
+   * Solve the circuit once in AC steady state at the global analysis frequency.
+   * Reuses the node assignment from analyzeCircuit(); builds a complex MNA
+   * system [Y]{V}={I}, factors and solves it, then distributes the node
+   * phasors. No time-stepping — phasor results are a single linear solve.
+   */
+  solvePhasor(): void {
+    this.phasorDirty = false;
+    this.omega = 2 * Math.PI * this.analysisFrequency;
+    const n = this.matrixSize;
+    if (n <= 0) return;
+
+    this.matrixC = Array.from({ length: n }, () => new Array<Complex>(n).fill(Complex.ZERO));
+    this.rightSideC = new Array<Complex>(n).fill(Complex.ZERO);
+    for (const ce of this.elmList) ce.stampPhasor(this, this.omega);
+    // GMIN to ground on each node row (see stampCircuit) — keeps floating
+    // subcircuits (e.g. a transformer secondary) solvable in phasor mode too.
+    const gmin = new Complex(SimulationManager.GMIN, 0);
+    for (let i = 0; i < this.nodeCount - 1; i++) this.matrixC[i][i] = this.matrixC[i][i].add(gmin);
+
+    const ipvt = new Array(n).fill(0);
+    if (!luFactorComplex(this.matrixC, n, ipvt)) {
+      this.stop("Singular matrix (phasor) — likely a loop of ideal voltage sources (add a series resistor) or a missing ground reference.");
+      return;
+    }
+    luSolveComplex(this.matrixC, n, ipvt, this.rightSideC);
+    this.applyPhasorSolution();
+  }
+
+  private applyPhasorSolution(): void {
+    const firstVsRow = this.nodeCount - 1;
+    for (const ce of this.elmList) {
+      for (let i = 0; i < ce.getNodeCount(); i++) {
+        const gnode = ce.nodes[i];
+        ce.voltsPhasor[i] = gnode <= 0 ? Complex.ZERO : this.rightSideC[gnode - 1];
+      }
+      // voltage-source / branch currents are solved as extra unknowns
+      const vsc = ce.getVoltageSourceCount();
+      for (let j = 0; j < vsc; j++) {
+        ce.setCurrentPhasor(ce.voltSource + j, this.rightSideC[firstVsRow + ce.voltSource + j]);
+      }
+    }
+    for (const ce of this.elmList) ce.calculateCurrentPhasor();
+  }
+
   private applySolution(): void {
     const firstVsRow = this.nodeCount - 1;
     for (const ce of this.elmList) {
@@ -269,6 +377,21 @@ export class SimulationManager {
     this.time = 0;
     for (const ce of this.elmList) ce.reset();
     this.needsStamp = true;
+    this.phasorDirty = true;
+  }
+
+  setAnalysisMode(m: AnalysisMode): void {
+    if (m === this.analysisMode) return;
+    this.analysisMode = m;
+    this.phasorDirty = true;
+    this.stopMessage = null;
+  }
+
+  setAnalysisFrequency(f: number): void {
+    if (f > 0 && f !== this.analysisFrequency) {
+      this.analysisFrequency = f;
+      this.phasorDirty = true;
+    }
   }
 
   stop(message: string): void {

@@ -32,7 +32,14 @@ export class CommandManager {
     else if (cmd === "zoom-in") this.zoomCenter(1.2);
     else if (cmd === "zoom-out") this.zoomCenter(1 / 1.2);
     else if (cmd === "reset-view") this.sim.resetView();
-    else if (cmd.startsWith("mode:")) this.sim.setMouseMode(cmd.slice(5));
+    else if (cmd === "analysis:transient" || cmd === "analysis:phasor") {
+      this.sim.sim.setAnalysisMode(cmd.slice(9) as "transient" | "phasor");
+      // DC sources can't be inserted in phasor mode — drop that tool if active.
+      if (this.sim.sim.analysisMode === "phasor" && this.sim.mouseMode === "DCVoltageElm") {
+        this.sim.setMouseMode("select");
+      }
+      this.sim.menus.updateForAnalysisMode(this.sim.sim.analysisMode);
+    } else if (cmd.startsWith("mode:")) this.sim.setMouseMode(cmd.slice(5));
   }
 
   /** Zoom around the centre of the canvas (used by toolbar buttons / keys). */
@@ -70,10 +77,34 @@ export class CommandManager {
     }
   }
 
+  // Single-key shortcuts that select an element-insertion tool (case-insensitive).
+  private static readonly TOOL_KEYS: Record<string, string> = {
+    w: "WireElm",
+    r: "ResistorElm",
+    l: "InductorElm",
+    c: "CapacitorElm",
+    t: "TransformerElm",
+    g: "GroundElm",
+    v: "DCVoltageElm",
+  };
+
   private onKey(e: KeyboardEvent): void {
     // ignore keys while typing in an input (e.g. the speed slider has focus)
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+
+    // Component-insertion shortcuts: a plain letter (no modifiers) picks the tool.
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
+      const tool = CommandManager.TOOL_KEYS[e.key.toLowerCase()];
+      if (tool) {
+        // A DC source can't be inserted in phasor mode — ignore its key there.
+        if (!(tool === "DCVoltageElm" && this.sim.sim.analysisMode === "phasor")) {
+          this.perform("mode:" + tool);
+          e.preventDefault();
+        }
+        return;
+      }
+    }
 
     if (e.key === "Delete" || e.key === "Backspace") {
       this.perform("delete");
