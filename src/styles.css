@@ -25,6 +25,111 @@ body {
   position: relative; /* anchor for the floating #infopanel */
 }
 
+/* --- top menu bar (Components / Sources / Measurement dropdowns) --- */
+.menubar {
+  display: flex;
+  align-items: stretch;
+  background: var(--toolbar-bg);
+  color: var(--toolbar-fg);
+  border-bottom: 1px solid var(--toolbar-border);
+  user-select: none;
+  font-size: 13px;
+}
+
+.menu {
+  position: relative;
+}
+
+.menu > button {
+  height: 100%;
+  padding: 4px 12px;
+  background: none;
+  color: var(--toolbar-fg);
+  border: none;
+  border-right: 1px solid var(--toolbar-border);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.menu > button:hover,
+.menu.open > button {
+  background: #2a2d33;
+}
+
+.dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: #23262c;
+  border: 1px solid var(--toolbar-border);
+  border-top: none;
+  list-style: none;
+  margin: 0;
+  padding: 3px 0;
+  z-index: 200;
+  min-width: 150px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.menu.open > .dropdown {
+  display: block;
+}
+
+.dropdown li,
+.sub-dropdown li {
+  padding: 6px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--toolbar-fg);
+  font-size: 13px;
+}
+
+.dropdown li:hover,
+.sub-dropdown li:hover {
+  background: #2a2d33;
+}
+
+.dropdown li.active,
+.sub-dropdown li.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.has-sub {
+  position: relative;
+}
+
+.has-sub::after {
+  content: " ▸";
+}
+
+.sub-dropdown {
+  display: none;
+  position: absolute;
+  top: -3px;
+  left: 100%;
+  background: #23262c;
+  border: 1px solid var(--toolbar-border);
+  list-style: none;
+  margin: 0;
+  padding: 3px 0;
+  z-index: 201;
+  min-width: 130px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.has-sub:hover > .sub-dropdown {
+  display: block;
+}
+
+.dropdown li.item-disabled,
+.sub-dropdown li.item-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 #toolbar {
   display: flex;
   flex-wrap: wrap;

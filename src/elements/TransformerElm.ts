@@ -17,10 +17,10 @@ import type { SimulationManager } from "../core/SimulationManager";
 // so it stays well-conditioned up to ideal coupling (k→1).
 //
 // Posts: 0 = primary top, 1 = primary bottom, 2 = secondary top, 3 = secondary bottom.
-// L1 = inductance, L2 = inductance·ratio², so `ratio` is the turns ratio √(L2/L1).
+// L1 = inductance, L2 = inductance/ratio², so `ratio` is the turns ratio N1/N2.
 export class TransformerElm extends SimElement {
   inductance = 4; // primary inductance L1 (H)
-  ratio = 1; // secondary / primary turns
+  ratio = 1; // primary / secondary turns (N1:N2)
   couplingCoef = 0.999;
 
   // transient companion resistances (set in stamp) + history sources
@@ -66,7 +66,7 @@ export class TransformerElm extends SimElement {
   /** Effective L1, L2, M from the editable (inductance, ratio, coupling). */
   private inductances(): { l1: number; l2: number; m: number } {
     const l1 = this.inductance;
-    const l2 = this.inductance * this.ratio * this.ratio;
+    const l2 = this.inductance / (this.ratio * this.ratio);
     const m = this.couplingCoef * Math.sqrt(l1 * l2);
     return { l1, l2, m };
   }
@@ -244,7 +244,7 @@ export class TransformerElm extends SimElement {
 
   override getEditInfo(n: number): EditInfo | null {
     if (n === 0) return new EditInfo("Primary Inductance (H)", this.inductance);
-    if (n === 1) return new EditInfo("Turns Ratio", this.ratio);
+    if (n === 1) return EditInfo.precise("Turns Ratio (N1:N2)", this.ratio);
     if (n === 2) return EditInfo.precise("Coupling Coefficient", this.couplingCoef);
     return null;
   }
@@ -269,7 +269,7 @@ export class TransformerElm extends SimElement {
     return [
       "Transformer",
       "L1 = " + getUnitText(this.inductance, "H"),
-      "ratio = " + round4(this.ratio),
+      "n = " + round4(this.ratio),
       "I1 = " + getUnitText(this.currents[0], "A"),
       "I2 = " + getUnitText(this.currents[1], "A"),
     ];
@@ -278,7 +278,7 @@ export class TransformerElm extends SimElement {
   override getInfoPhasor(): string[] {
     return [
       "Transformer",
-      "ratio = " + round4(this.ratio),
+      "n = " + round4(this.ratio),
       "I1 = " + formatPolar(this.currentPhasor, "A"),
       "I2 = " + formatPolar(this.currentPhasor2, "A"),
       "V1 = " + formatPolar(this.voltsPhasor[0].sub(this.voltsPhasor[1]), "V"),

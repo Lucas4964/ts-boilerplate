@@ -17,6 +17,7 @@ export class MouseManager {
   private sim: Simulator;
   private draggingNew: SimElement | null = null;
   private movingElement: SimElement | null = null;
+  private movingGroup = false; // true when dragging a rubber-band multi-selection
   private movingHandle: { el: SimElement; which: number } | null = null;
   private panning = false;
   private lastGX = 0;
@@ -86,22 +87,33 @@ export class MouseManager {
     }
 
     const hit = this.findElementAt(w.x, w.y);
-    this.sim.clearSelection();
-    if (hit) {
-      hit.selected = true;
+    if (hit && hit.selected && this.countSelected() > 1) {
+      // Clicking on an already-selected element in a multi-selection: preserve
+      // the whole group and set up a group drag (don't clear selection).
       this.sim.commands.pushUndo();
-      const handle = hit.nearestHandle(w.x, w.y, HANDLE_HIT_PX / this.sim.scale);
-      if (handle >= 0) {
-        this.movingHandle = { el: hit, which: handle }; // resize (expand/compress)
-      } else {
-        this.movingElement = hit; // move the whole element
-      }
+      this.movingElement = hit;
+      this.movingGroup = true;
       this.lastGX = gx;
       this.lastGY = gy;
     } else {
-      // empty space: begin a rubber-band area selection
-      this.selStart = { x: w.x, y: w.y };
-      this.selectionRect = new Rectangle(w.x, w.y, 0, 0);
+      this.sim.clearSelection();
+      if (hit) {
+        hit.selected = true;
+        this.sim.commands.pushUndo();
+        const handle = hit.nearestHandle(w.x, w.y, HANDLE_HIT_PX / this.sim.scale);
+        if (handle >= 0) {
+          this.movingHandle = { el: hit, which: handle }; // resize (expand/compress)
+        } else {
+          this.movingElement = hit; // move the whole element
+          this.movingGroup = false;
+        }
+        this.lastGX = gx;
+        this.lastGY = gy;
+      } else {
+        // empty space: begin a rubber-band area selection
+        this.selStart = { x: w.x, y: w.y };
+        this.selectionRect = new Rectangle(w.x, w.y, 0, 0);
+      }
     }
   }
 
@@ -177,7 +189,13 @@ export class MouseManager {
       const dx = gx - this.lastGX;
       const dy = gy - this.lastGY;
       if (dx !== 0 || dy !== 0) {
-        this.movingElement.move(dx, dy);
+        if (this.movingGroup) {
+          for (const el of this.sim.elmList) {
+            if (el.selected) el.move(dx, dy);
+          }
+        } else {
+          this.movingElement.move(dx, dy);
+        }
         this.lastGX = gx;
         this.lastGY = gy;
         this.sim.needAnalyze();
@@ -217,6 +235,7 @@ export class MouseManager {
       this.selectionRect = null;
     }
     this.movingElement = null;
+    this.movingGroup = false;
     this.movingHandle = null;
     if (this.sim.canvas.hasPointerCapture(e.pointerId)) {
       this.sim.canvas.releasePointerCapture(e.pointerId);
@@ -238,6 +257,10 @@ export class MouseManager {
       hit.selected = true;
       EditDialog.open(this.sim, hit);
     }
+  }
+
+  private countSelected(): number {
+    return this.sim.elmList.filter((e) => e.selected).length;
   }
 
   private findElementAt(wx: number, wy: number): SimElement | null {
