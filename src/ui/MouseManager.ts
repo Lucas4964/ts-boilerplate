@@ -2,6 +2,7 @@ import type { Simulator } from "../core/Simulator";
 import { SimElement } from "../elements/SimElement";
 import { ElementRegistry } from "../elements/ElementRegistry";
 import { EditDialog } from "./EditDialog";
+import { ContextMenu } from "./ContextMenu";
 import { Rectangle } from "../geom/Point";
 
 // Screen-pixel radius for grabbing an element's endpoint handle (to resize it)
@@ -64,6 +65,21 @@ export class MouseManager {
         this.sim.setMouseMode("select"); // cancels any two-click in progress
         e.preventDefault();
         return;
+      }
+      // Right-click over a component (select mode): open the rotation context
+      // menu instead of panning. Right-drag on empty space still pans.
+      if (e.button === 2) {
+        const w = this.worldPos(e);
+        const hit = this.findElementAt(w.x, w.y);
+        if (hit) {
+          if (!hit.selected) {
+            this.sim.clearSelection();
+            hit.selected = true; // keep an existing multi-selection if it includes hit
+          }
+          ContextMenu.open(this.sim, e.clientX, e.clientY);
+          e.preventDefault();
+          return;
+        }
       }
       const s = this.screenPos(e);
       this.panning = true;

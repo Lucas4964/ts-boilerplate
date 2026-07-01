@@ -39,7 +39,32 @@ export class CommandManager {
         this.sim.setMouseMode("select");
       }
       this.sim.menus.updateForAnalysisMode(this.sim.sim.analysisMode);
-    } else if (cmd.startsWith("mode:")) this.sim.setMouseMode(cmd.slice(5));
+    } else if (cmd.startsWith("rotate:")) this.rotateSelection(cmd.slice(7));
+    else if (cmd.startsWith("mode:")) this.sim.setMouseMode(cmd.slice(5));
+  }
+
+  /** Rotate the selected element(s) by 90° steps around their common centre.
+   *  A single element rotates in place; a group orbits its bounding-box centre. */
+  private rotateSelection(dir: string): void {
+    const sel = this.sim.elmList.filter((e) => e.selected);
+    if (sel.length === 0) return;
+    this.pushUndo();
+    const quarter = dir === "cw" ? 1 : dir === "ccw" ? -1 : 2;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const el of sel) {
+      minX = Math.min(minX, el.x, el.x2);
+      minY = Math.min(minY, el.y, el.y2);
+      maxX = Math.max(maxX, el.x, el.x2);
+      maxY = Math.max(maxY, el.y, el.y2);
+    }
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const snap = (v: number): number => this.sim.snap(v);
+    for (const el of sel) el.rotate(quarter, cx, cy, snap);
+    this.sim.needAnalyze();
   }
 
   /** Zoom around the centre of the canvas (used by toolbar buttons / keys). */

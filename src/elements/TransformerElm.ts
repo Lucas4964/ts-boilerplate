@@ -7,6 +7,8 @@ import { getUnitText, formatPolar, round4 } from "../util/format";
 import { Complex } from "../core/Complex";
 import type { SimulationManager } from "../core/SimulationManager";
 
+const GRID = 16; // mirror Simulator.gridSize; keeps rotated posts grid-aligned
+
 // Transformer = two magnetically-coupled inductors, modelled exactly like SPICE
 // (ngspice mut/ind): the *branch-current* (impedance) formulation. Each winding
 // adds a current unknown (reusing the engine's voltage-source rows) and a branch
@@ -22,6 +24,7 @@ export class TransformerElm extends SimElement {
   inductance = 4; // primary inductance L1 (H)
   ratio = 1; // primary / secondary turns (N1:N2)
   couplingCoef = 0.999;
+  orientation = 0; // 0..3 = 0/90/180/270° (see rotate); canonical box is horizontal
 
   // transient companion resistances (set in stamp) + history sources
   private req1 = 0;
@@ -37,6 +40,9 @@ export class TransformerElm extends SimElement {
   private currentPhasor2 = Complex.ZERO; // secondary (currentPhasor holds primary)
 
   private posts: Point[] = [new Point(), new Point(), new Point(), new Point()];
+  // Canonical (unrotated, horizontal) posts — used by draw() inside the rotation
+  // transform. `posts` above holds the rotated (world) posts read by the engine.
+  private cposts: Point[] = [new Point(), new Point(), new Point(), new Point()];
 
   override getType(): string {
     return "TransformerElm";
@@ -73,17 +79,79 @@ export class TransformerElm extends SimElement {
 
   override setPoints(): void {
     super.setPoints();
-    // Axis-aligned box; primary = left edge, secondary = right edge.
+    // Canonical axis-aligned box; primary = left edge, secondary = right edge.
     const xL = this.x;
     const xR = Math.abs(this.x2 - this.x) < 16 ? this.x + 48 : this.x2;
     const yT = this.y;
     const yB = Math.abs(this.y2 - this.y) < 16 ? this.y + 64 : this.y2;
-    this.posts = [
+    this.cposts = [
       new Point(xL, yT), // 0 primary top
       new Point(xL, yB), // 1 primary bottom
       new Point(xR, yT), // 2 secondary top
       new Point(xR, yB), // 3 secondary bottom
     ];
+    // Rotate the canonical posts into world space by `orientation` about the
+    // grid-snapped box centre, so the terminals stay on the grid.
+    const ccx = Math.round((xL + xR) / 2 / GRID) * GRID;
+    const ccy = Math.round((yT + yB) / 2 / GRID) * GRID;
+    this.posts = this.cposts.map((p) => this.rotPost(p, ccx, ccy));
+  }
+
+  /** Rotate a canonical post about (ccx,ccy) by `orientation` quarter-turns,
+   *  snapped to the grid. Quarter turns are clockwise in screen coords (y-down). */
+  private rotPost(p: Point, ccx: number, ccy: number): Point {
+    const dx = p.x - ccx;
+    const dy = p.y - ccy;
+    let nx: number, ny: number;
+    switch (this.orientation) {
+      case 1:
+        nx = -dy;
+        ny = dx;
+        break; // 90° CW
+      case 2:
+        nx = -dx;
+        ny = -dy;
+        break; // 180°
+      case 3:
+        nx = dy;
+        ny = -dx;
+        break; // 270° CW
+      default:
+        nx = dx;
+        ny = dy; // 0°
+    }
+    return new Point(Math.round((ccx + nx) / GRID) * GRID, Math.round((ccy + ny) / GRID) * GRID);
+  }
+
+  // Rotate in place (single element) or orbit the group pivot, advancing the
+  // orientation state; the canonical (horizontal) footprint is preserved.
+  override rotate(quarter: number, cx: number, cy: number, snap: (v: number) => number): void {
+    const bx = (this.x + this.x2) / 2;
+    const by = (this.y + this.y2) / 2;
+    const dx = bx - cx;
+    const dy = by - cy;
+    let ndx: number, ndy: number;
+    if (quarter === 1) {
+      ndx = -dy;
+      ndy = dx;
+    } else if (quarter === -1) {
+      ndx = dy;
+      ndy = -dx;
+    } else {
+      ndx = -dx;
+      ndy = -dy;
+    }
+    const ncx = snap(cx + ndx);
+    const ncy = snap(cy + ndy);
+    const hw = (this.x2 - this.x) / 2;
+    const hh = (this.y2 - this.y) / 2;
+    this.x = ncx - hw;
+    this.y = ncy - hh;
+    this.x2 = ncx + hw;
+    this.y2 = ncy + hh;
+    const q = quarter === -1 ? 3 : quarter;
+    this.orientation = (this.orientation + q) % 4;
+    this.setPoints();
   }
 
   // --- transient (branch-current companion) ---------------------------------
@@ -214,14 +282,24 @@ export class TransformerElm extends SimElement {
   }
 
   override draw(g: Graphics): void {
-    const xL = this.posts[0].x;
-    const xR = this.posts[2].x;
-    const yT = this.posts[0].y;
-    const yB = this.posts[1].y;
-    this.setBbox(xL, yT, xR, yB, 10);
+    // Draw the symbol in its CANONICAL (horizontal) frame inside a canvas
+    // rotation, so the existing coil/core/star code is reused verbatim for any
+    // orientation. The engine-facing posts (this.posts) are already rotated.
+    const xL = this.cposts[0].x;
+    const xR = this.cposts[2].x;
+    const yT = this.cposts[0].y;
+    const yB = this.cposts[1].y;
+    // Selection bbox uses the rotated posts (world space), before the transform.
+    this.setBbox(this.posts[0].x, this.posts[0].y, this.posts[3].x, this.posts[3].y, 10);
+    const ccx = Math.round((xL + xR) / 2 / GRID) * GRID;
+    const ccy = Math.round((yT + yB) / 2 / GRID) * GRID;
+    g.save();
+    g.translate(ccx, ccy);
+    g.rotate((this.orientation * Math.PI) / 2);
+    g.translate(-ccx, -ccy);
     this.color(g);
-    this.drawCoil(g, this.posts[0], this.posts[1], +1); // primary, humps toward center
-    this.drawCoil(g, this.posts[2], this.posts[3], -1); // secondary
+    this.drawCoil(g, this.cposts[0], this.cposts[1], +1); // primary, humps toward center
+    this.drawCoil(g, this.cposts[2], this.cposts[3], -1); // secondary
     // core lines
     const cx = Math.round((xL + xR) / 2);
     g.drawLine(cx - 3, yT, cx - 3, yB);
@@ -229,15 +307,16 @@ export class TransformerElm extends SimElement {
     // current animation on each winding
     this.curcount1 = this.updateDotCount(this.currents[0], this.curcount1);
     this.curcount2 = this.updateDotCount(this.currents[1], this.curcount2);
-    this.drawDots(g, this.posts[0], this.posts[1], this.curcount1);
-    this.drawDots(g, this.posts[2], this.posts[3], this.curcount2);
+    this.drawDots(g, this.cposts[0], this.cposts[1], this.curcount1);
+    this.drawDots(g, this.cposts[2], this.cposts[3], this.curcount2);
     // Dot-convention markers ("*") on the (+) reference terminals: primary post 0
     // (top-left) and secondary post 2 (top-right), nudged inward toward the core
     // so they sit beside the coil rather than on the post. V1/V2 are measured
     // dot→undotted, so these show why the reported sign comes out as it does.
     this.drawRefStar(g, xL + 7, yT + 6);
     this.drawRefStar(g, xR - 7, yT + 6);
-    this.drawPosts(g);
+    g.restore();
+    this.drawPosts(g); // real (rotated) post markers, in world space
   }
 
   // --- editing / info -------------------------------------------------------
@@ -257,12 +336,13 @@ export class TransformerElm extends SimElement {
   }
 
   override getDumpAttributes(): number[] {
-    return [this.inductance, this.ratio, this.couplingCoef];
+    return [this.inductance, this.ratio, this.couplingCoef, this.orientation];
   }
   override applyDumpAttributes(a: number[]): void {
     if (a.length > 0) this.inductance = a[0];
     if (a.length > 1) this.ratio = a[1];
     if (a.length > 2) this.couplingCoef = a[2];
+    if (a.length > 3) this.orientation = ((a[3] % 4) + 4) % 4;
   }
 
   override getInfo(): string[] {

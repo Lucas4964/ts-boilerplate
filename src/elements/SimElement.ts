@@ -279,6 +279,38 @@ export abstract class SimElement {
   }
 
   /**
+   * Rotate the element by a multiple of 90° around a pivot (world coords),
+   * snapping the result to the grid. `quarter` is +1 (90° clockwise, screen
+   * y-down), -1 (90° counter-clockwise), or 2 (180°). For a single element the
+   * pivot is its own centre (rotate in place); for a group it is the group's
+   * centre (the elements orbit it). The default rotates the two defining
+   * endpoints — enough for every linear / single-terminal symbol, whose draw and
+   * hit-test follow the point1→point2 axis. Box-based parts (transformers)
+   * override this to also advance an orientation state.
+   */
+  rotate(quarter: number, cx: number, cy: number, snap: (v: number) => number): void {
+    const r = (px: number, py: number): { x: number; y: number } => {
+      const dx = px - cx;
+      const dy = py - cy;
+      let nx: number, ny: number;
+      if (quarter === 1) {
+        nx = -dy;
+        ny = dx;
+      } else if (quarter === -1) {
+        nx = dy;
+        ny = -dx;
+      } else {
+        nx = -dx;
+        ny = -dy;
+      }
+      return { x: snap(cx + nx), y: snap(cy + ny) };
+    };
+    const p1 = r(this.x, this.y);
+    const p2 = r(this.x2, this.y2);
+    this.setPosition(p1.x, p1.y, p2.x, p2.y);
+  }
+
+  /**
    * Whether the element exposes endpoint handles for resize/reorient by drag.
    * Two-terminal elements do; single-terminal symbols (e.g. ground) opt in so
    * they can still be stretched and rotated even though they have one post.

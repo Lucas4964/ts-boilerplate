@@ -48,8 +48,18 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
   shorten it (resize one terminal while the other stays put). Ground is a
   single-terminal symbol but still exposes both ends, so you can stretch and
   reorient it too.
+- **Rotate:** **right-click a component** for a context menu with **Rotate 90°
+  right / left / 180°** (grid-based, so terminals stay on the grid — no arbitrary
+  angles). A single component spins around its own centre; a multi-selection
+  rotates rigidly around the group centre (connections are preserved). Linear
+  parts (R/L/C, sources, meters, wires, ground, probes) rotate by transforming
+  their two endpoints; the **transformers** carry a persisted orientation and
+  redraw via a canvas transform, so coils/terminals/hitbox all follow while the
+  labels stay horizontal. Rotation never changes the electrical result (the
+  solver depends only on terminal topology) and is undoable.
 - **Zoom & pan:** the **mouse wheel** zooms toward the cursor; **middle- or
-  right-drag** pans the view. Zoom buttons / keys zoom around the canvas centre.
+  right-drag empty space** pans the view (a right-click on a component opens the
+  rotate menu instead). Zoom buttons / keys zoom around the canvas centre.
 - **Info panel:** select an element to show its live electrical quantities
   (current, voltage drop, value, power, and the circuit operating frequency `fo`
   when an AC source is present) in a panel at the bottom-right — the analog of
@@ -201,9 +211,8 @@ Keep the managers/registry/render loop; replace `SimulationManager` (and its
 This is a boilerplate, not a full circuit simulator. Known simplifications and
 good exercises to add: wire current is not computed (wires only merge nodes —
 node voltages are still correct), scopes/graphing, nonlinear elements (the engine
-has a guarded re-factor branch but no convergence subloop), rotation for the
-transformer, and matrix simplification. See the reference project's
-`INTERNALS.md` for the deeper theory.
+has a guarded re-factor branch but no convergence subloop), and matrix
+simplification. See the reference project's `INTERNALS.md` for the deeper theory.
 
 For numerical robustness the engine adds a small **GMIN** conductance (1e-9 S)
 from every node to ground (as SPICE does), so a floating subcircuit — e.g. a

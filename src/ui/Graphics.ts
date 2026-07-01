@@ -32,6 +32,14 @@ export class Graphics {
     this.ctx.restore();
   }
 
+  translate(x: number, y: number): void {
+    this.ctx.translate(x, y);
+  }
+
+  rotate(rad: number): void {
+    this.ctx.rotate(rad);
+  }
+
   fillRect(x: number, y: number, w: number, h: number): void {
     this.ctx.fillRect(x, y, w, h);
   }

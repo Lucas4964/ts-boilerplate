@@ -43,12 +43,14 @@ const GROUPS: VectorGroup[] = [
   { name: "Dd0", prim: "D+", sec: "D+", clock: 0 },
 ];
 const ROOT3 = Math.sqrt(3);
+const GRID = 16; // mirror Simulator.gridSize; keeps rotated posts grid-aligned
 
 export class ThreePhaseTransformerElm extends SimElement {
   inductance = 4; // primary winding self-inductance L1 per phase (H, magnetizing)
   ratio = 1; // nominal LINE-to-line voltage ratio VLL_pri : VLL_sec
   couplingCoef = 0.999;
   vectorGroupIndex = 0; // default Yy0
+  orientation = 0; // 0..3 = 0/90/180/270° (see rotate); canonical box is horizontal
   // Neutral grounding per Y side (no effect on a Δ side). Default grounded — the
   // stable, expected behaviour; an isolated Y neutral floats and, with an
   // unbalanced load, shifts (the classic Yy neutral instability).
@@ -65,6 +67,9 @@ export class ThreePhaseTransformerElm extends SimElement {
   private curcounts: number[] = new Array(6).fill(0);
 
   private posts: Point[] = Array.from({ length: 6 }, () => new Point());
+  // Canonical (unrotated, horizontal) posts, used by draw() inside the rotation
+  // transform; `posts` holds the rotated (world) posts read by the engine.
+  private cposts: Point[] = Array.from({ length: 6 }, () => new Point());
 
   override getType(): string {
     return "ThreePhaseTransformerElm";
@@ -169,11 +174,10 @@ export class ThreePhaseTransformerElm extends SimElement {
     const yT = this.y;
     const yB = Math.abs(this.y2 - this.y) < 32 ? this.y + 96 : this.y2;
     // Snap the middle row (phase B/b posts) to the grid so it stays connectable
-    // even when the dragged height is an odd multiple of the grid (GRID mirrors
-    // Simulator.gridSize). The plain centre would land off-grid for those heights.
-    const GRID = 16;
+    // even when the dragged height is an odd multiple of the grid. The plain
+    // centre would land off-grid for those heights.
     const yM = yT + Math.max(GRID, Math.round((yB - yT) / 2 / GRID) * GRID);
-    this.posts = [
+    this.cposts = [
       new Point(xL, yT),
       new Point(xL, yM),
       new Point(xL, yB),
@@ -181,6 +185,62 @@ export class ThreePhaseTransformerElm extends SimElement {
       new Point(xR, yM),
       new Point(xR, yB),
     ];
+    // Rotate the canonical posts into world space by `orientation` about the
+    // grid-snapped box centre, so the terminals stay on the grid.
+    const ccx = Math.round((xL + xR) / 2 / GRID) * GRID;
+    const ccy = Math.round((yT + yB) / 2 / GRID) * GRID;
+    this.posts = this.cposts.map((p) => {
+      const w = this.rotWorld(p.x, p.y, ccx, ccy);
+      return new Point(Math.round(w.x / GRID) * GRID, Math.round(w.y / GRID) * GRID);
+    });
+  }
+
+  /** Rotate a canonical point about (ccx,ccy) by `orientation` quarter-turns
+   *  (clockwise, screen y-down), WITHOUT grid-snapping — for label anchors. */
+  private rotWorld(px: number, py: number, ccx: number, ccy: number): { x: number; y: number } {
+    const dx = px - ccx;
+    const dy = py - ccy;
+    switch (this.orientation) {
+      case 1:
+        return { x: ccx - dy, y: ccy + dx }; // 90° CW
+      case 2:
+        return { x: ccx - dx, y: ccy - dy }; // 180°
+      case 3:
+        return { x: ccx + dy, y: ccy - dx }; // 270° CW
+      default:
+        return { x: px, y: py }; // 0°
+    }
+  }
+
+  // Rotate in place (single element) or orbit the group pivot, advancing the
+  // orientation state; the canonical (horizontal) footprint is preserved.
+  override rotate(quarter: number, cx: number, cy: number, snap: (v: number) => number): void {
+    const bx = (this.x + this.x2) / 2;
+    const by = (this.y + this.y2) / 2;
+    const dx = bx - cx;
+    const dy = by - cy;
+    let ndx: number, ndy: number;
+    if (quarter === 1) {
+      ndx = -dy;
+      ndy = dx;
+    } else if (quarter === -1) {
+      ndx = dy;
+      ndy = -dx;
+    } else {
+      ndx = -dx;
+      ndy = -dy;
+    }
+    const ncx = snap(cx + ndx);
+    const ncy = snap(cy + ndy);
+    const hw = (this.x2 - this.x) / 2;
+    const hh = (this.y2 - this.y) / 2;
+    this.x = ncx - hw;
+    this.y = ncy - hh;
+    this.x2 = ncx + hw;
+    this.y2 = ncy + hh;
+    const q = quarter === -1 ? 3 : quarter;
+    this.orientation = (this.orientation + q) % 4;
+    this.setPoints();
   }
 
   // --- transient (branch-current companion) ---------------------------------
@@ -329,57 +389,67 @@ export class ThreePhaseTransformerElm extends SimElement {
   // --- drawing --------------------------------------------------------------
 
   override draw(g: Graphics): void {
-    const xL = this.posts[0].x;
-    const xR = this.posts[3].x;
-    const yT = this.posts[0].y;
-    const yB = this.posts[2].y;
-    this.setBbox(xL, yT, xR, yB, 14);
+    // Canonical (horizontal) geometry — the graphical parts are drawn in this
+    // frame inside a canvas rotation; text labels are drawn afterwards in world
+    // space (rotated positions, but kept horizontal so they stay legible).
+    const xL = this.cposts[0].x;
+    const xR = this.cposts[3].x;
+    const yT = this.cposts[0].y;
+    const yB = this.cposts[2].y;
     const bodyL = xL + 22;
     const bodyR = xR - 22;
     const bodyT = yT - 10;
     const bodyB = yB + 10;
+    const ccx = Math.round((xL + xR) / 2 / GRID) * GRID;
+    const ccy = Math.round((yT + yB) / 2 / GRID) * GRID;
+    // Selection bbox from the rotated posts (opposite corners) in world space.
+    this.setBbox(this.posts[0].x, this.posts[0].y, this.posts[5].x, this.posts[5].y, 14);
 
-    this.color(g);
-    g.drawRect(bodyL, bodyT, bodyR - bodyL, bodyB - bodyT);
-    // terminal stubs
-    for (let i = 0; i < 3; i++) g.drawLine(this.posts[i].x, this.posts[i].y, bodyL, this.posts[i].y);
-    for (let i = 3; i < 6; i++) g.drawLine(this.posts[i].x, this.posts[i].y, bodyR, this.posts[i].y);
-    // current animation along the stubs — each stub carries its terminal's LINE
-    // current (curcounts indexed by terminal 0..5)
+    // current animation counters (terminal 0..5 line currents)
     for (let t = 0; t < 6; t++) {
       this.curcounts[t] = this.updateDotCount(this.lineCurrent(t), this.curcounts[t]);
     }
+
+    g.save();
+    g.translate(ccx, ccy);
+    g.rotate((this.orientation * Math.PI) / 2);
+    g.translate(-ccx, -ccy);
+    this.color(g);
+    g.drawRect(bodyL, bodyT, bodyR - bodyL, bodyB - bodyT);
+    // terminal stubs
+    for (let i = 0; i < 3; i++) g.drawLine(this.cposts[i].x, this.cposts[i].y, bodyL, this.cposts[i].y);
+    for (let i = 3; i < 6; i++) g.drawLine(this.cposts[i].x, this.cposts[i].y, bodyR, this.cposts[i].y);
     for (let i = 0; i < 3; i++) {
-      this.drawDots(g, this.posts[i], new Point(bodyL, this.posts[i].y), this.curcounts[i]);
-      this.drawDots(g, this.posts[3 + i], new Point(bodyR, this.posts[3 + i].y), this.curcounts[3 + i]);
+      this.drawDots(g, this.cposts[i], new Point(bodyL, this.cposts[i].y), this.curcounts[i]);
+      this.drawDots(g, this.cposts[3 + i], new Point(bodyR, this.cposts[3 + i].y), this.curcounts[3 + i]);
     }
-
-    // phase labels
-    g.setColor(SimElement.elementColor);
-    g.setFontSize(11);
-    const pl = ["A", "B", "C"];
-    const sl = ["a", "b", "c"];
-    for (let i = 0; i < 3; i++) {
-      g.drawString(pl[i], bodyL + 3, this.posts[i].y - 3);
-      g.drawString(sl[i], bodyR - 9, this.posts[3 + i].y - 3);
-    }
-
-    // vector group + ratio, centered
-    const cx = Math.round((bodyL + bodyR) / 2);
-    const cy = this.posts[1].y;
-    g.setColor(SimElement.valueColor);
-    g.setFontSize(13);
-    const name = this.displayName();
-    g.drawString(name, cx - g.measureWidth(name) / 2, cy - 2);
-    g.setFontSize(10);
-    const rt = "n=" + round4(this.ratio);
-    g.drawString(rt, cx - g.measureWidth(rt) / 2, cy + 12);
-
     // dot-convention markers ("*") on the primary/secondary phase-A reference terminals
     this.drawRefStar(g, bodyL + 4, yT + 5);
     this.drawRefStar(g, bodyR - 4, yT + 5);
+    g.restore();
 
-    this.drawPosts(g);
+    this.drawPosts(g); // real (rotated) post markers, world space
+
+    // --- text labels, world space, always horizontal --------------------------
+    const pl = ["A", "B", "C"];
+    const sl = ["a", "b", "c"];
+    g.setColor(SimElement.elementColor);
+    g.setFontSize(11);
+    for (let i = 0; i < 3; i++) {
+      const pp = this.rotWorld(bodyL + 3, this.cposts[i].y - 3, ccx, ccy);
+      g.drawString(pl[i], pp.x, pp.y);
+      const sp = this.rotWorld(bodyR - 9, this.cposts[3 + i].y - 3, ccx, ccy);
+      g.drawString(sl[i], sp.x, sp.y);
+    }
+    // vector group + ratio, at the rotated body centre
+    const center = this.rotWorld(Math.round((bodyL + bodyR) / 2), this.cposts[1].y, ccx, ccy);
+    g.setColor(SimElement.valueColor);
+    g.setFontSize(13);
+    const name = this.displayName();
+    g.drawString(name, center.x - g.measureWidth(name) / 2, center.y - 2);
+    g.setFontSize(10);
+    const rt = "n=" + round4(this.ratio);
+    g.drawString(rt, center.x - g.measureWidth(rt) / 2, center.y + 12);
   }
 
   // --- editing / info -------------------------------------------------------
@@ -432,6 +502,7 @@ export class ThreePhaseTransformerElm extends SimElement {
       this.vectorGroupIndex,
       this.primNeutralGrounded ? 1 : 0,
       this.secNeutralGrounded ? 1 : 0,
+      this.orientation,
     ];
   }
   override applyDumpAttributes(a: number[]): void {
@@ -441,6 +512,7 @@ export class ThreePhaseTransformerElm extends SimElement {
     if (a.length > 3) this.vectorGroupIndex = Math.max(0, Math.min(GROUPS.length - 1, Math.round(a[3])));
     if (a.length > 4) this.primNeutralGrounded = a[4] !== 0;
     if (a.length > 5) this.secNeutralGrounded = a[5] !== 0;
+    if (a.length > 6) this.orientation = ((Math.round(a[6]) % 4) + 4) % 4;
   }
 
   // --- info panel: every phase, grouped by side ------------------------------
