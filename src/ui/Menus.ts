@@ -31,8 +31,20 @@ const MENU_BAR: { label: string; items: MenuItem[] }[] = [
   {
     label: "Sources",
     items: [
-      { label: "AC Source", mode: "ACVoltageElm" },
-      { label: "DC Source", mode: "DCVoltageElm" },
+      {
+        label: "Voltage",
+        sub: [
+          { label: "AC Source", mode: "ACVoltageElm" },
+          { label: "DC Source", mode: "DCVoltageElm" },
+        ],
+      },
+      {
+        label: "Current",
+        sub: [
+          { label: "AC Current", mode: "ACCurrentElm" },
+          { label: "DC Current", mode: "DCCurrentElm" },
+        ],
+      },
     ],
   },
   {
@@ -41,9 +53,13 @@ const MENU_BAR: { label: string; items: MenuItem[] }[] = [
       { label: "V Probe", mode: "VoltageProbeElm" },
       { label: "ΔV Probe", mode: "DiffVoltageProbeElm" },
       { label: "I Probe", mode: "CurrentProbeElm" },
+      { label: "Ammeter", mode: "AmmeterElm" },
     ],
   },
 ];
+
+// DC-only elements have no phasor, so they can't be inserted in phasor mode.
+const DC_ONLY_MODES = ["DCVoltageElm", "DCCurrentElm"];
 
 // Builds the toolbar DOM and keeps button state in sync. Equivalent in spirit
 // to CircuitJS's Menus/composeMainMenu — all actions are routed through the
@@ -149,9 +165,10 @@ export class Menus {
       btn.classList.toggle("active", name === mode);
     }
     this.freqInput.disabled = !phasor;
-    // DC Source can't be placed in phasor mode; visually disable its menu item.
-    const dc = this.modeButtons.get("DCVoltageElm");
-    if (dc) dc.classList.toggle("item-disabled", phasor);
+    // DC-only sources can't be placed in phasor mode; visually disable them.
+    for (const name of DC_ONLY_MODES) {
+      this.modeButtons.get(name)?.classList.toggle("item-disabled", phasor);
+    }
   }
 
   updateRunButton(running: boolean): void {

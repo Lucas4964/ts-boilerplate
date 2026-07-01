@@ -34,8 +34,8 @@ export class CommandManager {
     else if (cmd === "reset-view") this.sim.resetView();
     else if (cmd === "analysis:transient" || cmd === "analysis:phasor") {
       this.sim.sim.setAnalysisMode(cmd.slice(9) as "transient" | "phasor");
-      // DC sources can't be inserted in phasor mode — drop that tool if active.
-      if (this.sim.sim.analysisMode === "phasor" && this.sim.mouseMode === "DCVoltageElm") {
+      // DC-only sources can't be inserted in phasor mode — drop that tool if active.
+      if (this.sim.sim.analysisMode === "phasor" && CommandManager.DC_ONLY_MODES.has(this.sim.mouseMode)) {
         this.sim.setMouseMode("select");
       }
       this.sim.menus.updateForAnalysisMode(this.sim.sim.analysisMode);
@@ -86,7 +86,11 @@ export class CommandManager {
     t: "TransformerElm",
     g: "GroundElm",
     v: "DCVoltageElm",
+    a: "AmmeterElm",
   };
+
+  // DC-only sources have no phasor, so they can't be inserted in phasor mode.
+  private static readonly DC_ONLY_MODES = new Set(["DCVoltageElm", "DCCurrentElm"]);
 
   private onKey(e: KeyboardEvent): void {
     // ignore keys while typing in an input (e.g. the speed slider has focus)
@@ -97,8 +101,8 @@ export class CommandManager {
     if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
       const tool = CommandManager.TOOL_KEYS[e.key.toLowerCase()];
       if (tool) {
-        // A DC source can't be inserted in phasor mode — ignore its key there.
-        if (!(tool === "DCVoltageElm" && this.sim.sim.analysisMode === "phasor")) {
+        // A DC-only source can't be inserted in phasor mode — ignore its key there.
+        if (!(CommandManager.DC_ONLY_MODES.has(tool) && this.sim.sim.analysisMode === "phasor")) {
           this.perform("mode:" + tool);
           e.preventDefault();
         }

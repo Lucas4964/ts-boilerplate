@@ -7,10 +7,11 @@ modern **TypeScript + HTML + Canvas**, preserving the *patterns* — orchestrato
 managers, element base + registry, MNA engine, render loop — without the GWT
 toolchain.
 
-The included reference domain is a small **circuit simulator** with a dozen
+The included reference domain is a small **circuit simulator** with a dozen-plus
 elements (wire, resistor, capacitor, inductor, single- and three-phase
-transformers, DC/AC sources, ground, and voltage/differential/current probes).
-Swap the domain by replacing the engine + elements behind the same seams.
+transformers, DC/AC voltage sources, DC/AC current sources, ground, a series
+ammeter, and voltage/differential/current probes). Swap the domain by replacing
+the engine + elements behind the same seams.
 
 ## Quick start
 
@@ -78,6 +79,20 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
     (wires/ground carry no measurable branch current, so they're skipped).
   All probes show the reading on canvas and in the info panel, in polar form in
   phasor mode.
+  - **Ammeter** (series): unlike the clamp-on I Probe, this one wires **into**
+    the branch. It is an **ideal 0 V source** whose branch current is solved as
+    an extra unknown — zero inserted voltage drop, exact series current. Same
+    model as Falstad's ammeter and SPICE's dummy-`V 0` trick. Works in both modes.
+- **Sources:** the **Sources** menu splits into **Voltage** (AC/DC voltage
+  sources) and **Current** (AC/DC current sources). A **current source** is the
+  dual of a voltage source: it stamps only the right-hand side (`stampCurrentSource`),
+  drives a fixed current with the arrow marking its direction (post 0 → post 1),
+  and its terminal voltage is set by the circuit. In **phasor** mode a *DC*
+  current source is **open** (a dead current source, the dual of a dead voltage
+  source's short), so — like the DC voltage source — it can't be inserted there.
+  A current source into an **open** circuit is an ideal singularity; here the
+  GMIN-to-ground keeps the matrix solvable, so you'll see a very large (not
+  infinite) terminal voltage rather than a crash.
 - **Analysis modes:** **Transient** (default) runs the time-domain solver
   described below. **Phasor** does a single AC steady-state solve at the global
   frequency in the toolbar: R/L/C become complex impedances (`Z_L = jωL`,
@@ -108,8 +123,9 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
 - **Keys:** Space = run/stop, Delete = remove selected, Ctrl/Cmd+Z = undo,
   `+`/`−` = zoom, `0`/Home = reset view, Esc = Select tool. **Insertion shortcuts**
   (case-insensitive): **W** = Wire, **R** = Resistor, **L** = Inductor,
-  **C** = Capacitor, **T** = Transformer, **G** = Ground, **V** = DC source
-  (ignored in phasor mode, and while typing in a field).
+  **C** = Capacitor, **T** = Transformer, **G** = Ground, **V** = DC source,
+  **A** = Ammeter (DC sources are ignored in phasor mode, and all shortcuts are
+  ignored while typing in a field).
 
 ## Architecture
 
