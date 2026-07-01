@@ -20,8 +20,11 @@ import type { SimulationManager } from "../core/SimulationManager";
 //                                           internal floating node)
 //   - Δ⁺ winding i : line_i  ↔  line_(i+1)
 //   - Δ⁻ winding i : line_i  ↔  line_(i+2)
-// The √3 between line and winding voltage on a Δ side is folded into the per-unit
-// turns ratio (see windingRatio).
+// The √3 between line and winding voltage is NOT folded into the ratio — it falls
+// out of the wiring itself (a Y winding sees line/√3, a Δ winding sees the full
+// line-to-line), so `ratio` is the winding turns ratio N1:N2 and each phase is
+// numerically identical to the single-phase TransformerElm (SPICE / Falstad): a
+// 1:1 Y-Δ steps the line voltage by √3, matching a bank of three discrete units.
 //
 // Posts: 0,1,2 = primary A,B,C (left);  3,4,5 = secondary a,b,c (right).
 
@@ -42,12 +45,11 @@ const GROUPS: VectorGroup[] = [
   { name: "Yd11", prim: "Y", sec: "D-", clock: 11 },
   { name: "Dd0", prim: "D+", sec: "D+", clock: 0 },
 ];
-const ROOT3 = Math.sqrt(3);
 const GRID = 16; // mirror Simulator.gridSize; keeps rotated posts grid-aligned
 
 export class ThreePhaseTransformerElm extends SimElement {
   inductance = 4; // primary winding self-inductance L1 per phase (H, magnetizing)
-  ratio = 1; // nominal LINE-to-line voltage ratio VLL_pri : VLL_sec
+  ratio = 1; // winding turns ratio N1:N2 per phase (same as the 1φ TransformerElm)
   couplingCoef = 0.999;
   vectorGroupIndex = 0; // default Yy0
   orientation = 0; // 0..3 = 0/90/180/270° (see rotate); canonical box is horizontal
@@ -121,15 +123,15 @@ export class ThreePhaseTransformerElm extends SimElement {
     if (n === 0) this.voltSource = vs; // base id; winding k uses voltSource + k
   }
 
-  /** Per-unit turns ratio Ns/Np, with the √3 line/winding factor folded in so
-   *  `ratio` stays the nameplate line-to-line voltage ratio. */
+  /** Per-unit turns ratio Ns/Np. The √3 between line and winding voltage on a Y
+   *  or Δ side is NOT applied here — it emerges from how each winding is wired to
+   *  the line/neutral terminals (see windingLocal), exactly like a bank of three
+   *  single-phase units (SPICE / Falstad). So `ratio` is the winding turns ratio
+   *  N1:N2, and a 1:1 Y-Δ steps the line voltage by √3 (a real connection effect
+   *  — not folded away). This makes each phase numerically identical to the
+   *  single-phase TransformerElm, so the block equals the discrete bank. */
   private windingRatio(): number {
-    const g = this.group();
-    const primDelta = g.prim !== "Y";
-    const secDelta = g.sec !== "Y";
-    // n_w = Vw_pri / Vw_sec = ratio · (Δ:1, Y:1/√3 on each side)
-    const nW = (this.ratio * (primDelta ? 1 : 1 / ROOT3)) / (secDelta ? 1 : 1 / ROOT3);
-    return 1 / nW; // ratioUnit = Ns/Np
+    return 1 / this.ratio; // Ns/Np
   }
   private inductances(): { l1: number; l2: number; m: number } {
     const l1 = this.inductance;
@@ -468,7 +470,7 @@ export class ThreePhaseTransformerElm extends SimElement {
       case "group":
         return EditInfo.choice("Vector group", GROUPS.map((x) => x.name), this.vectorGroupIndex);
       case "ratio":
-        return new EditInfo("Line voltage ratio (VLLp:VLLs)", this.ratio);
+        return EditInfo.precise("Turns Ratio (N1:N2)", this.ratio);
       case "inductance":
         return new EditInfo("Primary Inductance (H)", this.inductance);
       case "coupling":

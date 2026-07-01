@@ -256,10 +256,16 @@ neutral:
 - **Info panel:** every phase, grouped by side — `Vp/Vs` (line-to-ground) and
   `Ip/Is` (line currents) for A/B/C, in polar form in phasor mode.
 
-The editable **ratio is the nameplate line-to-line voltage ratio** `VLLp:VLLs`;
-the √3 between line and winding voltage on a Δ side is folded into the per-unit
-turns ratio internally, so a `1:1` group reads a unity line-to-neutral magnitude
-with the correct shift. Limitations: it is a *bank* model (no zero-sequence
+The editable **ratio is the per-winding turns ratio `N1:N2`** — the *same*
+quantity as the single-phase transformer, so each phase of the block is
+numerically identical to a discrete single-phase unit (the SPICE / Falstad model,
+which has no "nameplate line ratio" concept). The √3 between line and winding
+voltage is **not** folded in; it falls out of the connection itself (a Y winding
+is wired line-to-neutral and sees `V_line/√3`, a Δ winding sees the full
+line-to-line). So a **`1:1` Y–Δ steps the line voltage by √3** (e.g. 220 V line in
+→ 127 V line out), exactly like a bank of three single-phase units — the √3 is a
+real connection effect, not hidden. `Y–Y` and `Δ–Δ` keep line = line.
+Limitations: it is a *bank* model (no zero-sequence
 magnetic coupling of a 3-limb core); leakage is tied to the coupling coefficient
 (`L_sc = L·(1−k²)`), so with small loads a low `k` noticeably loads the secondary —
 raise `k` toward 1 for a near-ideal 1:1. A **Δ–Δ at exactly `k = 1`** leaves the
