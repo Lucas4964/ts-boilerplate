@@ -16,6 +16,9 @@ import type { SimulationManager } from "../core/SimulationManager";
 //   calculateCurrent()-> derive element current and remember the voltage
 export class CapacitorElm extends SimElement {
   capacitance = 1e-5; // 10 µF
+  /** Voltage across the capacitor at t = 0 (transient only), as in Falstad's
+   *  CapacitorElm — reset() precharges the companion history to this value. */
+  initialVoltage = 0;
   private compResistance = 0;
   private voltdiff = 0;
   private curSourceValue = 0;
@@ -78,7 +81,7 @@ export class CapacitorElm extends SimElement {
 
   override reset(): void {
     super.reset();
-    this.voltdiff = 0;
+    this.voltdiff = this.initialVoltage; // precharge (Falstad parity)
     this.curSourceValue = 0;
   }
 
@@ -113,6 +116,11 @@ export class CapacitorElm extends SimElement {
   }
 
   override getEditInfo(n: number): EditInfo | null {
+    // Initial voltage is a transient-only concept (no initial condition in a
+    // steady-state phasor solve), so the field appears only in transient mode.
+    if (n === 1 && SimElement.analysisMode !== "phasor") {
+      return new EditInfo("Initial Voltage (V)", this.initialVoltage);
+    }
     if (n !== 0) return null;
     if (SimElement.analysisMode !== "phasor") {
       return new EditInfo("Capacitance (F)", this.capacitance);
@@ -127,6 +135,11 @@ export class CapacitorElm extends SimElement {
     return ei;
   }
   override setEditValue(n: number, value: number): void {
+    if (n === 1) {
+      // initial voltage may be zero or negative; takes effect on Reset
+      if (Number.isFinite(value)) this.initialVoltage = value;
+      return;
+    }
     if (n !== 0 || value <= 0) return;
     if (SimElement.analysisMode === "phasor" && this.editUnitOhm) {
       const w = 2 * Math.PI * SimElement.analysisFrequency;
@@ -140,10 +153,14 @@ export class CapacitorElm extends SimElement {
   }
 
   override getDumpAttributes(): number[] {
-    return [this.capacitance];
+    return [this.capacitance, this.initialVoltage];
   }
   override applyDumpAttributes(a: number[]): void {
     if (a.length > 0) this.capacitance = a[0];
+    if (a.length > 1) {
+      this.initialVoltage = a[1];
+      this.voltdiff = a[1]; // a loaded circuit starts precharged (fresh t = 0)
+    }
   }
 
   override getInfo(): string[] {

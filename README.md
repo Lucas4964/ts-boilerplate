@@ -227,6 +227,25 @@ equation `V = jωL·I + jωM·I_other` (phasor) / trapezoidal companion (transie
 `M = k·√(L1·L2)`. Because it never inverts `[L]`, it stays well-conditioned up to
 ideal coupling (`k = 1`).
 
+### Fidelity notes (validated against analytic solutions)
+
+Two deliberate deviations from Falstad, both *toward* SPICE:
+- **Time-varying sources are evaluated at the end of the step (`t+h`)**, the time
+  point the solve actually produces — Falstad evaluates at `t`, which time-shifts
+  every waveform by one step. With this, the transient AC steady state matches the
+  phasor solve to ~1e-6 relative (measured), instead of lagging by `ωh`.
+- **Capacitor `Initial Voltage`** (transient only, applied on Reset/load) — same
+  parameter Falstad exposes.
+
+The whole numeric path was audited against CircuitJS1's Java source (LU solvers,
+MNA stamps, companion models, sign conventions) and validated end-to-end against
+closed-form solutions: DC divider (exact to GMIN), RC/RL step and RC discharge
+(&lt;0.03% at t=τ with the default 5 µs step), series-RC phasor vs the complex
+divider (~1e-7), transient-vs-phasor AC agreement (~1e-6), a loaded single-phase
+transformer vs the coupled-inductor equations (~1e-10), the 3φ vector groups
+(ratios 1, √3, 1/√3 and shifts 0°/±30° exact), and ammeter ≡ clamp probe ≡
+analytic current.
+
 ### Three-phase transformer
 
 `3φ Transformer` is a single **6-terminal** block (posts 0–2 = primary A/B/C on

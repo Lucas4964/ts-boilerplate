@@ -62,7 +62,9 @@ export class CurrentElm extends SimElement {
 
   override doStep(sim: SimulationManager): void {
     if (this.waveform !== CurrentElm.WF_DC) {
-      const i = this.getCurrentAt(sim.time);
+      // Evaluate at the END of the step (t+h) — the injected current must match
+      // the time point the solve produces (SPICE convention; see VoltageElm).
+      const i = this.getCurrentAt(sim.time + sim.timeStep);
       sim.stampCurrentSource(this.nodes[0], this.nodes[1], i);
       this.current = i;
     }

@@ -66,7 +66,10 @@ export class VoltageElm extends SimElement {
 
   override doStep(sim: SimulationManager): void {
     if (this.waveform !== VoltageElm.WF_DC) {
-      sim.updateVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, this.getVoltage(sim.time));
+      // Evaluate at the END of the step (t+h): the solve produces the state at
+      // t+h, so the source constraint must hold there (SPICE convention).
+      // Falstad evaluates at t, which just time-shifts everything by one step.
+      sim.updateVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, this.getVoltage(sim.time + sim.timeStep));
     }
   }
 
