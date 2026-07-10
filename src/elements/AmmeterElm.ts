@@ -1,4 +1,4 @@
-import { SimElement } from "./SimElement";
+import { SimElement, CurrentSense, CurrentSensePhasor } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
 import { Point } from "../geom/Point";
 import { getUnitText, formatPolar } from "../util/format";
@@ -42,6 +42,14 @@ export class AmmeterElm extends SimElement {
 
   override stampPhasor(sim: SimulationManager): void {
     sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, Complex.ZERO);
+  }
+
+  // The meter's 0 V row is a branch unknown — bindable as a current control.
+  override currentSense(): CurrentSense {
+    return { kind: "branch", vs: this.voltSource };
+  }
+  override currentSensePhasor(): CurrentSensePhasor {
+    return { kind: "branch", vs: this.voltSource };
   }
 
   private reading(): string {

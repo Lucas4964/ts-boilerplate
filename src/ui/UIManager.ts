@@ -128,7 +128,12 @@ export class UIManager {
 
   private updateInfobar(): void {
     const s = this.sim;
-    if (s.sim.stopMessage) {
+    if (s.mouse.pickingFor) {
+      s.infobarEl.textContent =
+        "⊕ Click an element to use as CONTROL for the " +
+        s.mouse.pickingFor.getType().replace("Elm", "") +
+        "  (Esc or right-click cancels)";
+    } else if (s.sim.stopMessage) {
       s.infobarEl.textContent = "⚠ " + s.sim.stopMessage;
     } else {
       const zoom = Math.round(s.scale * 100);

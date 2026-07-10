@@ -28,9 +28,26 @@ import type { SimulationManager } from "../core/SimulationManager";
 
 const GRID = 16; // mirror Simulator.gridSize; keeps rotated posts grid-aligned
 
+/** Complex-coefficient VCCS stamp (for a bound L/C control in phasor mode,
+ *  where the coupling is β·jωC etc. — stampVCCurrentSourceC only takes a real g). */
+function stampVCCSComplex(sim: SimulationManager, cn1: number, cn2: number, vn1: number, vn2: number, y: Complex): void {
+  sim.stampMatrixC(cn1, vn1, y);
+  sim.stampMatrixC(cn2, vn2, y);
+  sim.stampMatrixC(cn1, vn2, y.neg());
+  sim.stampMatrixC(cn2, vn1, y.neg());
+}
+
 export abstract class ControlledSourceElm extends SimElement {
   gain = 1;
   orientation = 0; // 0..3 = 0/90/180/270°, same pattern as the transformers
+
+  // Optional BOUND control: instead of wiring c+/c−, the control variable is
+  // another element picked on the canvas (Edit dialog → Control → Pick). The
+  // control then equals exactly the quantity that element's info panel shows
+  // (its Vd with its own reference polarity, or its I with its own direction).
+  // Persisted as an index into the element list (−1 = wired mode).
+  controlTarget: SimElement | null = null;
+  private pendingTargetIndex = -1;
 
   protected posts: Point[] = Array.from({ length: 4 }, () => new Point());
   protected cposts: Point[] = Array.from({ length: 4 }, () => new Point());
@@ -182,8 +199,24 @@ export abstract class ControlledSourceElm extends SimElement {
 
     this.drawPosts(g);
 
+    // Bound control: dashed link from the control side to the target's centre
+    // (the wired pair is inert — its labels are dimmed below).
+    if (this.controlTarget) {
+      const from = this.rotWorld(xL, (yT + yB) / 2, ccx, ccy);
+      const t = this.controlTarget;
+      const tx = (t.x + t.x2) / 2;
+      const ty = (t.y + t.y2) / 2;
+      g.setColor("#ffaa44");
+      g.setLineWidth(1);
+      g.setLineDash(4, 4);
+      g.drawLine(from.x, from.y, tx, ty);
+      g.setLineDash(0, 0);
+      g.setFontSize(10);
+      g.drawString("ctrl", (from.x + tx) / 2 + 4, (from.y + ty) / 2 - 2);
+    }
+
     // labels, world space, horizontal
-    g.setColor(SimElement.elementColor);
+    g.setColor(this.controlTarget ? "#666666" : SimElement.elementColor);
     g.setFontSize(10);
     const put = (text: string, px: number, py: number): void => {
       const p = this.rotWorld(px, py, ccx, ccy);
@@ -191,6 +224,7 @@ export abstract class ControlledSourceElm extends SimElement {
     };
     put("c+", xL + 3, yT - 4);
     put("c-", xL + 3, yB + 12);
+    g.setColor(SimElement.elementColor);
     put("+", xR - 8, yT - 4);
     put("-", xR - 8, yB + 12);
     // type + gain, centered under the body
@@ -205,28 +239,99 @@ export abstract class ControlledSourceElm extends SimElement {
 
   // --- editing / info ----------------------------------------------------------
 
+  private pickRequested = false;
+
   override getEditInfo(n: number): EditInfo | null {
     if (n === 0) return EditInfo.precise(this.gainLabel(), this.gain);
+    if (n === 1) {
+      const bound = this.controlTarget !== null;
+      const pickLabel = bound
+        ? "Bound: " + this.controlTarget!.getType().replace("Elm", "")
+        : "Pick element on canvas…";
+      return EditInfo.choice("Control", ["Wired (c+/c−)", pickLabel], bound ? 1 : 0);
+    }
     return null;
   }
   override setEditValue(n: number, value: number): void {
     if (n === 0 && Number.isFinite(value) && value !== 0) this.gain = value;
   }
+  override setEditChoice(n: number, choiceIndex: number): void {
+    if (n !== 1) return;
+    if (choiceIndex === 0) {
+      this.controlTarget = null; // back to the wired c+/c− pair
+    } else if (!this.controlTarget) {
+      this.pickRequested = true; // EditDialog closes and starts the canvas pick
+    }
+  }
+  /** One-shot flag read by EditDialog after a choice change: true = the user
+   *  asked to pick a control element on the canvas. */
+  consumePickRequest(): boolean {
+    const r = this.pickRequested;
+    this.pickRequested = false;
+    return r;
+  }
+  /** Full target validation (structure + expressible current for CCxS). */
+  acceptsTarget(t: SimElement, sim: SimulationManager): boolean {
+    if (!this.isBindableTarget(t)) return false;
+    if (this.currentControl() && t.currentSense(sim) === null) return false;
+    return true;
+  }
 
+  override beforeDump(elmList: SimElement[]): void {
+    this.pendingTargetIndex = this.controlTarget ? elmList.indexOf(this.controlTarget) : -1;
+  }
   override getDumpAttributes(): number[] {
-    return [this.gain, this.orientation];
+    return [this.gain, this.orientation, this.pendingTargetIndex];
   }
   override applyDumpAttributes(a: number[]): void {
     if (a.length > 0) this.gain = a[0];
     if (a.length > 1) this.orientation = ((Math.round(a[1]) % 4) + 4) % 4;
+    this.pendingTargetIndex = a.length > 2 ? Math.round(a[2]) : -1;
+    this.controlTarget = null; // resolved on the next analyze (bindMeasurement)
   }
 
-  /** Control voltage Vc = V(c+) − V(c−). */
+  /** Structural target check (full electrical check happens at pick/stamp time,
+   *  where the sim is available for currentSense). */
+  isBindableTarget(t: SimElement): boolean {
+    return t !== this && t.getPostCount() === 2;
+  }
+
+  // Resolve a loaded index → object, and drop bindings whose target vanished
+  // (deleted) — the element then falls back to its wired c+/c− pair.
+  override bindMeasurement(elmList: SimElement[]): void {
+    if (this.pendingTargetIndex >= 0) {
+      const t = elmList[this.pendingTargetIndex];
+      this.controlTarget = t && this.isBindableTarget(t) ? t : null;
+      this.pendingTargetIndex = -1;
+    }
+    if (this.controlTarget && !elmList.includes(this.controlTarget)) this.controlTarget = null;
+  }
+
+  /** Control node pair (p,n) so that V(p)−V(n) is the control voltage: the
+   *  bound target's nodes ordered by ITS reference convention (the `*` mark),
+   *  or this element's own c+/c− posts in wired mode. */
+  protected controlNodes(): { p: number; n: number } {
+    const t = this.controlTarget;
+    if (t) {
+      return t.getReferenceNode() === 1 ? { p: t.nodes[1], n: t.nodes[0] } : { p: t.nodes[0], n: t.nodes[1] };
+    }
+    return { p: this.nodes[0], n: this.nodes[1] };
+  }
+
+  /** Control voltage: the bound target's Vd (its own polarity) or V(c+)−V(c−). */
   protected controlVolts(): number {
-    return this.volts[0] - this.volts[1];
+    return this.controlTarget ? this.controlTarget.getVoltageDiff() : this.volts[0] - this.volts[1];
   }
   protected controlVoltsPhasor(): Complex {
-    return this.voltsPhasor[0].sub(this.voltsPhasor[1]);
+    return this.controlTarget ? this.controlTarget.getVoltageDiffPhasor() : this.voltsPhasor[0].sub(this.voltsPhasor[1]);
+  }
+  /** Control current: the bound target's I (its own direction) or the internal
+   *  0 V sense reading (this.current, delivered by the engine in wired mode). */
+  protected controlCurrent(): number {
+    return this.controlTarget ? this.controlTarget.getCurrent() : this.current;
+  }
+  protected controlCurrentPhasor(): Complex {
+    return this.controlTarget ? this.controlTarget.getCurrentPhasor() : this.currentPhasor;
   }
   /** Output voltage V(out+) − V(out−). */
   protected outputVolts(): number {
@@ -244,13 +349,18 @@ export abstract class ControlledSourceElm extends SimElement {
     return this.outputVoltsPhasor().mul(this.outputCurrentPhasor().conj());
   }
 
+  private boundInfo(): string {
+    return this.controlTarget ? "ctrl ← " + this.controlTarget.getType().replace("Elm", "") + " (bound)" : "ctrl: wired c+/c−";
+  }
+
   override getInfo(): string[] {
     const ctrl = this.currentControl()
-      ? "Ictrl = " + getUnitText(this.getCurrent(), "A")
+      ? "Ictrl = " + getUnitText(this.controlCurrent(), "A")
       : "Vctrl = " + getUnitText(this.controlVolts(), "V");
     return [
       this.getType().replace("Elm", ""),
       this.gainPrefix().replace("=", "") + " = " + round4(this.gain),
+      this.boundInfo(),
       ctrl,
       "Vout = " + getUnitText(this.outputVolts(), "V"),
       "Iout = " + getUnitText(this.outputCurrent(), "A"),
@@ -259,11 +369,12 @@ export abstract class ControlledSourceElm extends SimElement {
   }
   override getInfoPhasor(): string[] {
     const ctrl = this.currentControl()
-      ? "Ictrl = " + formatPolar(this.getCurrentPhasor(), "A")
+      ? "Ictrl = " + formatPolar(this.controlCurrentPhasor(), "A")
       : "Vctrl = " + formatPolar(this.controlVoltsPhasor(), "V");
     return [
       this.getType().replace("Elm", ""),
       this.gainPrefix().replace("=", "") + " = " + round4(this.gain),
+      this.boundInfo(),
       ctrl,
       "Vout = " + formatPolar(this.outputVoltsPhasor(), "V"),
       "Iout = " + formatPolar(this.outputCurrentPhasor(), "A"),
@@ -298,14 +409,16 @@ export class VCVSElm extends ControlledSourceElm {
   override stamp(sim: SimulationManager): void {
     const vn = sim.nodeCount + this.voltSource;
     sim.stampVoltageSource(this.nodes[3], this.nodes[2], this.voltSource); // no RHS: row stays = 0
-    sim.stampMatrix(vn, this.nodes[0], -this.gain);
-    sim.stampMatrix(vn, this.nodes[1], this.gain);
+    const { p, n } = this.controlNodes(); // own c pair, or the bound target's nodes
+    sim.stampMatrix(vn, p, -this.gain);
+    sim.stampMatrix(vn, n, this.gain);
   }
   override stampPhasor(sim: SimulationManager): void {
     const vn = sim.nodeCount + this.voltSource;
     sim.stampVoltageSourceC(this.nodes[3], this.nodes[2], this.voltSource, Complex.ZERO);
-    sim.stampMatrixC(vn, this.nodes[0], new Complex(-this.gain, 0));
-    sim.stampMatrixC(vn, this.nodes[1], new Complex(this.gain, 0));
+    const { p, n } = this.controlNodes();
+    sim.stampMatrixC(vn, p, new Complex(-this.gain, 0));
+    sim.stampMatrixC(vn, n, new Complex(this.gain, 0));
   }
   protected outputCurrent(): number {
     return this.current; // solved branch current, delivered out of out+
@@ -349,10 +462,12 @@ export class VCCSElm extends ControlledSourceElm {
   }
   override stamp(sim: SimulationManager): void {
     // takes gm·Vc from out− and delivers it at out+ (positive i exits out+)
-    sim.stampVCCurrentSource(this.nodes[3], this.nodes[2], this.nodes[0], this.nodes[1], this.gain);
+    const { p, n } = this.controlNodes();
+    sim.stampVCCurrentSource(this.nodes[3], this.nodes[2], p, n, this.gain);
   }
   override stampPhasor(sim: SimulationManager): void {
-    sim.stampVCCurrentSourceC(this.nodes[3], this.nodes[2], this.nodes[0], this.nodes[1], this.gain);
+    const { p, n } = this.controlNodes();
+    sim.stampVCCurrentSourceC(this.nodes[3], this.nodes[2], p, n, this.gain);
   }
   override calculateCurrent(): void {
     this.current = this.gain * this.controlVolts();
@@ -402,35 +517,73 @@ export class CCCSElm extends ControlledSourceElm {
     return true;
   }
   override getVoltageSourceCount(): number {
-    return 1; // the 0 V sense
+    return 1; // the 0 V sense (inert when bound to an external control)
   }
   override stamp(sim: SimulationManager): void {
     const vn = sim.nodeCount + this.voltSource;
     sim.stampVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, 0); // sense: c+ → c−
-    sim.stampMatrix(this.nodes[3], vn, this.gain); // β·I leaves out−
-    sim.stampMatrix(this.nodes[2], vn, -this.gain); // β·I delivered at out+
+    const t = this.controlTarget;
+    const sense = t ? t.currentSense(sim) : null;
+    if (t && !sense) this.controlTarget = null; // target's current not expressible → wired fallback
+    if (!this.controlTarget) {
+      sim.stampMatrix(this.nodes[3], vn, this.gain); // β·I leaves out−
+      sim.stampMatrix(this.nodes[2], vn, -this.gain); // β·I delivered at out+
+      return;
+    }
+    if (sense!.kind === "branch") {
+      const col = sim.nodeCount + sense!.vs; // target's own branch-current column
+      sim.stampMatrix(this.nodes[3], col, this.gain);
+      sim.stampMatrix(this.nodes[2], col, -this.gain);
+    } else if (sense!.g !== 0) {
+      // i_out = β·(g·(Vp−Vn) + iConst): matrix part here, iConst each doStep
+      sim.stampVCCurrentSource(this.nodes[3], this.nodes[2], sense!.p, sense!.n, this.gain * sense!.g);
+    }
+  }
+  override doStep(sim: SimulationManager): void {
+    const t = this.controlTarget;
+    if (!t) return;
+    const sense = t.currentSense(sim);
+    if (sense && sense.kind === "linear" && sense.iConst !== 0) {
+      sim.stampCurrentSource(this.nodes[3], this.nodes[2], this.gain * sense.iConst); // β·iConst at out+
+    }
   }
   override stampPhasor(sim: SimulationManager): void {
     const vn = sim.nodeCount + this.voltSource;
     sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, Complex.ZERO);
-    sim.stampMatrixC(this.nodes[3], vn, new Complex(this.gain, 0));
-    sim.stampMatrixC(this.nodes[2], vn, new Complex(-this.gain, 0));
+    const t = this.controlTarget;
+    const sense = t ? t.currentSensePhasor(sim, sim.omega) : null;
+    if (t && !sense) this.controlTarget = null;
+    if (!this.controlTarget) {
+      sim.stampMatrixC(this.nodes[3], vn, new Complex(this.gain, 0));
+      sim.stampMatrixC(this.nodes[2], vn, new Complex(-this.gain, 0));
+      return;
+    }
+    if (sense!.kind === "branch") {
+      const col = sim.nodeCount + sense!.vs;
+      sim.stampMatrixC(this.nodes[3], col, new Complex(this.gain, 0));
+      sim.stampMatrixC(this.nodes[2], col, new Complex(-this.gain, 0));
+    } else {
+      if (sense!.y.abs() !== 0) stampVCCSComplex(sim, this.nodes[3], this.nodes[2], sense!.p, sense!.n, sense!.y.scale(this.gain));
+      if (sense!.iConst.abs() !== 0) sim.stampCurrentSourceC(this.nodes[3], this.nodes[2], sense!.iConst.scale(this.gain));
+    }
   }
   protected outputCurrent(): number {
-    return this.gain * this.current; // current = I_sense
+    return this.gain * this.controlCurrent(); // wired: own sense; bound: target's I
   }
   protected outputCurrentPhasor(): Complex {
-    return this.currentPhasor.scale(this.gain);
+    return this.controlCurrentPhasor().scale(this.gain);
   }
   override getPostCurrent(n: number): number {
-    if (n === 0) return this.current; // I_sense enters c+
-    if (n === 1) return -this.current;
+    const is = this.controlTarget ? 0 : this.current; // c pair inert when bound
+    if (n === 0) return is;
+    if (n === 1) return -is;
     if (n === 2) return -this.outputCurrent();
     return this.outputCurrent();
   }
   override getPostCurrentPhasor(n: number): Complex {
-    if (n === 0) return this.currentPhasor;
-    if (n === 1) return this.currentPhasor.neg();
+    const is = this.controlTarget ? Complex.ZERO : this.currentPhasor;
+    if (n === 0) return is;
+    if (n === 1) return is.neg();
     if (n === 2) return this.outputCurrentPhasor().neg();
     return this.outputCurrentPhasor();
   }
@@ -470,16 +623,52 @@ export class CCVSElm extends ControlledSourceElm {
   override stamp(sim: SimulationManager): void {
     const vnSense = sim.nodeCount + this.voltSource;
     const vnOut = vnSense + 1;
-    sim.stampVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, 0); // sense
+    sim.stampVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, 0); // sense (inert when bound)
     sim.stampVoltageSource(this.nodes[3], this.nodes[2], this.voltSource + 1); // output row (= 0 RHS)
-    sim.stampMatrix(vnOut, vnSense, -this.gain); // V(o+)−V(o−) − r·I_sense = 0
+    const t = this.controlTarget;
+    const sense = t ? t.currentSense(sim) : null;
+    if (t && !sense) this.controlTarget = null; // unexpressible current → wired fallback
+    if (!this.controlTarget) {
+      sim.stampMatrix(vnOut, vnSense, -this.gain); // V(o+)−V(o−) − r·I_sense = 0
+      return;
+    }
+    if (sense!.kind === "branch") {
+      sim.stampMatrix(vnOut, sim.nodeCount + sense!.vs, -this.gain);
+    } else if (sense!.g !== 0) {
+      // V(o+)−V(o−) − r·g·(Vp−Vn) = r·iConst (RHS refreshed each doStep)
+      sim.stampMatrix(vnOut, sense!.p, -this.gain * sense!.g);
+      sim.stampMatrix(vnOut, sense!.n, this.gain * sense!.g);
+    }
+  }
+  override doStep(sim: SimulationManager): void {
+    const t = this.controlTarget;
+    if (!t) return;
+    const sense = t.currentSense(sim);
+    if (sense && sense.kind === "linear" && sense.iConst !== 0) {
+      sim.stampRightSide(sim.nodeCount + this.voltSource + 1, this.gain * sense.iConst);
+    }
   }
   override stampPhasor(sim: SimulationManager): void {
     const vnSense = sim.nodeCount + this.voltSource;
     const vnOut = vnSense + 1;
     sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, Complex.ZERO);
     sim.stampVoltageSourceC(this.nodes[3], this.nodes[2], this.voltSource + 1, Complex.ZERO);
-    sim.stampMatrixC(vnOut, vnSense, new Complex(-this.gain, 0));
+    const t = this.controlTarget;
+    const sense = t ? t.currentSensePhasor(sim, sim.omega) : null;
+    if (t && !sense) this.controlTarget = null;
+    if (!this.controlTarget) {
+      sim.stampMatrixC(vnOut, vnSense, new Complex(-this.gain, 0));
+      return;
+    }
+    if (sense!.kind === "branch") {
+      sim.stampMatrixC(vnOut, sim.nodeCount + sense!.vs, new Complex(-this.gain, 0));
+    } else {
+      if (sense!.y.abs() !== 0) {
+        sim.stampMatrixC(vnOut, sense!.p, sense!.y.scale(-this.gain));
+        sim.stampMatrixC(vnOut, sense!.n, sense!.y.scale(this.gain));
+      }
+      if (sense!.iConst.abs() !== 0) sim.stampRightSideC(vnOut, sense!.iConst.scale(this.gain));
+    }
   }
   override setCurrent(vs: number, c: number): void {
     this.currents[vs - this.voltSource] = c;

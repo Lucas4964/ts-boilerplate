@@ -1,5 +1,6 @@
 import type { Simulator } from "../core/Simulator";
 import { SimElement } from "../elements/SimElement";
+import { ControlledSourceElm } from "../elements/ControlledSourceElm";
 import { parseUnit, formatForEdit } from "../util/format";
 
 // A real modal property editor (replaces the old window.prompt loop). It reads
@@ -158,6 +159,13 @@ export class EditDialog {
   /** Pick a pure-choice option; may change topology, so re-analyze. */
   private changeChoice(index: number, choiceIndex: number): void {
     this.el.setEditChoice(index, choiceIndex);
+    // A controlled source's "Pick element…" choice closes the dialog and hands
+    // the interaction to the canvas: the next left-click binds the control.
+    if (this.el instanceof ControlledSourceElm && this.el.consumePickRequest()) {
+      this.commit();
+      this.sim.mouse.startControlPick(this.el);
+      return;
+    }
     this.sim.needAnalyze();
   }
 

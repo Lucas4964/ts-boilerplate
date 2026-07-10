@@ -1,4 +1,4 @@
-import { SimElement } from "./SimElement";
+import { SimElement, CurrentSense, CurrentSensePhasor } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
 import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
@@ -85,6 +85,15 @@ export class VoltageElm extends SimElement {
   override stampPhasor(sim: SimulationManager): void {
     const v = this.waveform === VoltageElm.WF_DC ? Complex.ZERO : this.getPhasor();
     sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, v);
+  }
+
+  // A voltage source's current is an MNA branch unknown — expose it so a
+  // current-controlled source can bind to this element as its control.
+  override currentSense(): CurrentSense {
+    return { kind: "branch", vs: this.voltSource };
+  }
+  override currentSensePhasor(): CurrentSensePhasor {
+    return { kind: "branch", vs: this.voltSource };
   }
 
   protected radius(): number {

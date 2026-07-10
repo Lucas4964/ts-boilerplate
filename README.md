@@ -106,7 +106,19 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
   `c+/c−` **in series** into the sensed branch — internally it is a 0 V source
   (an ideal ammeter), exactly SPICE's "control through a named V source" made
   self-contained (as Falstad's chips do). Positive output current exits the
-  `out+` terminal. A high-gain VCVS makes an ideal-op-amp macro (validated: an
+  `out+` terminal. **Bound control (no extra wiring):** instead of wiring
+  `c+/c−`, double-click the source and set **Control → Pick element on
+  canvas…**, then click the component whose quantity should drive it — a dashed
+  `ctrl` link shows the binding, and the control equals **exactly the value that
+  component's info panel shows** (its `Vd` with its own `*` polarity, or its `I`
+  with its own direction). Voltage control binds to any 2-terminal element;
+  current control binds to anything whose current is expressible during the
+  solve — voltage sources and the ammeter (their branch current is already an
+  MNA unknown), R (Ohm's law), L/C (their trapezoidal companion — still exact),
+  and current sources; **wires can't be bound** (their current isn't computed).
+  The binding survives save/load and undo; deleting the target falls back to
+  the wired pair. The bound coupling stays **inside the matrix** (simultaneous,
+  no one-step lag), so results are identical to the wired equivalent. A high-gain VCVS makes an ideal-op-amp macro (validated: an
   inverting amp with μ=1e5, R1=1k, Rf=10k reads −9.9989 V — the exact
   finite-gain value). Caveats: a loop of ideal V-outputs is singular (add a
   series resistor), and positive-feedback loops with gain ≥ 1 blow up — physics,

@@ -5,6 +5,22 @@ import { getUnitText, formatPolar } from "../util/format";
 import { Complex } from "../core/Complex";
 import type { SimulationManager, AnalysisMode } from "../core/SimulationManager";
 
+/**
+ * How an element's current can be expressed DURING the solve, so a
+ * current-controlled source can couple to it inside the MNA matrix (a probe
+ * reads currents AFTER the solve — that is not enough for control):
+ *  - "branch": the current IS an MNA unknown (a voltage-source row) — couple to
+ *    matrix column `nodeCount + vs`. Sign = the element's own current convention.
+ *  - "linear": i = g·(V(p) − V(n)) + iConst, where p/n are circuit nodes, `g` is
+ *    constant per analyze and `iConst` may change every step (companion history,
+ *    time-varying source) — re-read it in doStep.
+ */
+export type CurrentSense = { kind: "branch"; vs: number } | { kind: "linear"; p: number; n: number; g: number; iConst: number };
+/** Phasor twin: same shapes, complex coefficient (e.g. jωC) and constant. */
+export type CurrentSensePhasor =
+  | { kind: "branch"; vs: number }
+  | { kind: "linear"; p: number; n: number; y: Complex; iConst: Complex };
+
 // Abstract base for every element — the direct analog of CircuitJS's CircuitElm.
 // It defines the lifecycle contract the engine and UI rely on. New elements
 // subclass this (or an intermediate base such as VoltageElm) and implement the
@@ -165,6 +181,26 @@ export abstract class SimElement {
    *  (re)bind to what it measures — e.g. a current probe to the nearest terminal.
    *  Default: nothing. */
   bindMeasurement(_elmList: SimElement[]): void {}
+
+  /**
+   * Describe this element's current as a solvable-time quantity (see
+   * {@link CurrentSense}) so a current-controlled source can bind to it.
+   * Default: null — the current is not expressible (wires, probes,
+   * multi-terminal parts). Implementations must compute coefficients from their
+   * own parameters + sim.timeStep (not from fields cached in stamp(), which may
+   * not have run yet when the controlled source stamps first).
+   */
+  currentSense(_sim: SimulationManager): CurrentSense | null {
+    return null;
+  }
+  /** Phasor twin of {@link currentSense} (complex coefficient, e.g. jωC). */
+  currentSensePhasor(_sim: SimulationManager, _omega: number): CurrentSensePhasor | null {
+    return null;
+  }
+
+  /** Hook called by the serializer right before dump(), with the full list —
+   *  lets an element persist a reference to another as a list index. */
+  beforeDump(_elmList: SimElement[]): void {}
 
   /** Phasor counterpart of setCurrent: receives a solved branch-current phasor
    *  for voltage source `vs`. Multi-source elements (transformer) override it. */

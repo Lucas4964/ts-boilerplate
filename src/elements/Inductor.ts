@@ -29,6 +29,12 @@ export class Inductor {
     return this.current;
   }
 
+  /** Companion history term (the per-step constant in i = vd/R + iConst) —
+   *  read by a current-controlled source bound to this inductor. */
+  companionCurrent(): number {
+    return this.curSourceValue;
+  }
+
   reset(): void {
     this.current = 0;
     this.curSourceValue = 0;

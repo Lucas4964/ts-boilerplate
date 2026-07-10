@@ -8,6 +8,9 @@ import { ElementRegistry } from "../elements/ElementRegistry";
 // element's getDumpAttributes()/applyDumpAttributes().
 export const Serializer = {
   dump(elms: SimElement[]): string {
+    // Let elements persist cross-references (e.g. a controlled source's bound
+    // control target) as indices into this list before serializing.
+    for (const e of elms) e.beforeDump(elms);
     return elms.map((e) => e.dump()).join("\n");
   },
 

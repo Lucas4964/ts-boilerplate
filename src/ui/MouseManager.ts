@@ -1,5 +1,6 @@
 import type { Simulator } from "../core/Simulator";
 import { SimElement } from "../elements/SimElement";
+import { ControlledSourceElm } from "../elements/ControlledSourceElm";
 import { ElementRegistry } from "../elements/ElementRegistry";
 import { EditDialog } from "./EditDialog";
 import { ContextMenu } from "./ContextMenu";
@@ -30,6 +31,18 @@ export class MouseManager {
   // Rubber-band area selection: drag start (world) + the current rect (world).
   private selStart: { x: number; y: number } | null = null;
   selectionRect: Rectangle | null = null;
+  // Control-pick mode: the next left-click binds the clicked element as this
+  // controlled source's control (started from its edit dialog).
+  pickingFor: ControlledSourceElm | null = null;
+
+  /** Enter control-pick mode for a controlled source (Esc / right-click cancels). */
+  startControlPick(el: ControlledSourceElm): void {
+    this.pickingFor = el;
+    this.sim.setMouseMode("select");
+  }
+  cancelControlPick(): void {
+    this.pickingFor = null;
+  }
 
   constructor(sim: Simulator) {
     this.sim = sim;
@@ -61,6 +74,11 @@ export class MouseManager {
     // Middle button always pans. Right button: in a placement tool it exits the
     // tool (so a Wire chain ends on right-click); in Select it pans.
     if (e.button === 1 || e.button === 2) {
+      if (e.button === 2 && this.pickingFor) {
+        this.cancelControlPick(); // right-click aborts the control pick
+        e.preventDefault();
+        return;
+      }
       if (e.button === 2 && this.sim.mouseMode !== "select") {
         this.sim.setMouseMode("select"); // cancels any two-click in progress
         e.preventDefault();
@@ -96,6 +114,19 @@ export class MouseManager {
     const gx = this.sim.snap(w.x);
     const gy = this.sim.snap(w.y);
     this.sim.canvas.setPointerCapture(e.pointerId);
+
+    // Control-pick mode: this click selects the control element (or is ignored
+    // if the target is not bindable — e.g. a wire for a current control).
+    if (this.pickingFor) {
+      const hit = this.findElementAt(w.x, w.y);
+      if (hit && this.pickingFor.acceptsTarget(hit, this.sim.sim)) {
+        this.sim.commands.pushUndo();
+        this.pickingFor.controlTarget = hit;
+        this.pickingFor = null;
+        this.sim.needAnalyze();
+      }
+      return;
+    }
 
     if (this.sim.mouseMode !== "select") {
       this.onPlaceDown(gx, gy);

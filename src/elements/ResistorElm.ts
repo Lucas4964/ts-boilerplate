@@ -1,4 +1,4 @@
-import { SimElement } from "./SimElement";
+import { SimElement, CurrentSense, CurrentSensePhasor } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
 import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
@@ -42,6 +42,20 @@ export class ResistorElm extends SimElement {
   }
   override calculateCurrentPhasor(): void {
     this.currentPhasor = this.voltsPhasor[0].sub(this.voltsPhasor[1]).scale(1 / this.resistance);
+  }
+
+  // i = (V(p)−V(n))/R — bindable as a current control (Ohm's law is exact).
+  override currentSense(): CurrentSense {
+    return { kind: "linear", p: this.nodes[0], n: this.nodes[1], g: 1 / this.resistance, iConst: 0 };
+  }
+  override currentSensePhasor(): CurrentSensePhasor {
+    return {
+      kind: "linear",
+      p: this.nodes[0],
+      n: this.nodes[1],
+      y: new Complex(1 / this.resistance, 0),
+      iConst: Complex.ZERO,
+    };
   }
 
   override draw(g: Graphics): void {

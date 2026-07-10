@@ -1,4 +1,4 @@
-import { SimElement } from "./SimElement";
+import { SimElement, CurrentSense, CurrentSensePhasor } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
 import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
@@ -55,6 +55,23 @@ export class InductorElm extends SimElement {
   override reset(): void {
     super.reset();
     this.ind.reset();
+  }
+
+  // i = vd/(2L/dt) + companion history — bindable as a current control. The g
+  // coefficient is computed from L and the timestep directly (order-independent).
+  override currentSense(sim: SimulationManager): CurrentSense {
+    return {
+      kind: "linear",
+      p: this.nodes[0],
+      n: this.nodes[1],
+      g: sim.timeStep / (2 * this.inductance),
+      iConst: this.ind.companionCurrent(),
+    };
+  }
+  override currentSensePhasor(_sim: SimulationManager, omega: number): CurrentSensePhasor {
+    const zL = new Complex(0, omega * this.inductance);
+    const y = zL.abs() === 0 ? Complex.ZERO : Complex.ONE.div(zL);
+    return { kind: "linear", p: this.nodes[0], n: this.nodes[1], y, iConst: Complex.ZERO };
   }
 
   override draw(g: Graphics): void {

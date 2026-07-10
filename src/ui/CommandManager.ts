@@ -154,6 +154,7 @@ export class CommandManager {
       this.perform("reset-view");
       e.preventDefault();
     } else if (e.key === "Escape") {
+      this.sim.mouse.cancelControlPick();
       this.sim.setMouseMode("select");
     }
   }

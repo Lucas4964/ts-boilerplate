@@ -1,4 +1,4 @@
-import { SimElement } from "./SimElement";
+import { SimElement, CurrentSense, CurrentSensePhasor } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
 import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
@@ -87,6 +87,17 @@ export class CurrentElm extends SimElement {
   // node voltages), so we set it directly rather than derive it.
   override calculateCurrentPhasor(): void {
     this.currentPhasor = this.waveform === CurrentElm.WF_DC ? Complex.ZERO : this.getPhasor();
+  }
+
+  // The source's current is a KNOWN value (not solution-dependent): g = 0 and
+  // the whole control is the per-step constant, evaluated at t+h like doStep.
+  override currentSense(sim: SimulationManager): CurrentSense {
+    const i = this.waveform === CurrentElm.WF_DC ? this.currentValue : this.getCurrentAt(sim.time + sim.timeStep);
+    return { kind: "linear", p: this.nodes[0], n: this.nodes[1], g: 0, iConst: i };
+  }
+  override currentSensePhasor(): CurrentSensePhasor {
+    const i = this.waveform === CurrentElm.WF_DC ? Complex.ZERO : this.getPhasor();
+    return { kind: "linear", p: this.nodes[0], n: this.nodes[1], y: Complex.ZERO, iConst: i };
   }
 
   protected radius(): number {

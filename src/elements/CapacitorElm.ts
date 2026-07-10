@@ -1,4 +1,4 @@
-import { SimElement } from "./SimElement";
+import { SimElement, CurrentSense, CurrentSensePhasor } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
 import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
@@ -83,6 +83,27 @@ export class CapacitorElm extends SimElement {
     super.reset();
     this.voltdiff = this.initialVoltage; // precharge (Falstad parity)
     this.curSourceValue = 0;
+  }
+
+  // i = vd/(dt/2C) + companion history — bindable as a current control. The g
+  // coefficient is computed from C and the timestep directly (order-independent).
+  override currentSense(sim: SimulationManager): CurrentSense {
+    return {
+      kind: "linear",
+      p: this.nodes[0],
+      n: this.nodes[1],
+      g: (2 * this.capacitance) / sim.timeStep,
+      iConst: this.curSourceValue,
+    };
+  }
+  override currentSensePhasor(_sim: SimulationManager, omega: number): CurrentSensePhasor {
+    return {
+      kind: "linear",
+      p: this.nodes[0],
+      n: this.nodes[1],
+      y: new Complex(0, omega * this.capacitance),
+      iConst: Complex.ZERO,
+    };
   }
 
   override draw(g: Graphics): void {
