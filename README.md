@@ -93,6 +93,24 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
     the branch. It is an **ideal 0 V source** whose branch current is solved as
     an extra unknown — zero inserted voltage drop, exact series current. Same
     model as Falstad's ammeter and SPICE's dummy-`V 0` trick. Works in both modes.
+- **Controlled (dependent) sources:** `Sources → Controlled` offers the four
+  linear dependent sources — **VCVS** (V→V, gain μ), **VCCS** (V→I,
+  transconductance gm), **CCVS** (I→V, transresistance r) and **CCCS** (I→I,
+  gain β) — modelled exactly on ngspice's `E/G/H/F` devices (same MNA stamps,
+  linear, frequency-independent, valid in both transient and phasor modes).
+  Each is a 4-terminal block: the **control pair `c+/c−`** on the left, the
+  **output pair** on the right (diamond symbol: `+/−` for a voltage output, an
+  arrow for a current output). **Wiring the control**: for voltage control
+  (VCVS/VCCS) connect `c+/c−` **in parallel** with the sensed component — the
+  pair is ideal and draws no current; for current control (CCVS/CCCS) insert
+  `c+/c−` **in series** into the sensed branch — internally it is a 0 V source
+  (an ideal ammeter), exactly SPICE's "control through a named V source" made
+  self-contained (as Falstad's chips do). Positive output current exits the
+  `out+` terminal. A high-gain VCVS makes an ideal-op-amp macro (validated: an
+  inverting amp with μ=1e5, R1=1k, Rf=10k reads −9.9989 V — the exact
+  finite-gain value). Caveats: a loop of ideal V-outputs is singular (add a
+  series resistor), and positive-feedback loops with gain ≥ 1 blow up — physics,
+  not a bug.
 - **Sources:** the **Sources** menu splits into **Voltage** (AC/DC voltage
   sources) and **Current** (AC/DC current sources). A **current source** is the
   dual of a voltage source: it stamps only the right-hand side (`stampCurrentSource`),

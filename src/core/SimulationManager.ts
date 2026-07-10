@@ -263,6 +263,17 @@ export class SimulationManager {
     this.stampRightSideC(n2, i);
   }
 
+  /** Complex twin of stampVCCurrentSource. The transconductance of a linear
+   *  dependent source is frequency-independent, so `g` stays real — exactly how
+   *  ngspice's AC load reuses the DC stamp for the E/G/F/H devices. */
+  stampVCCurrentSourceC(cn1: number, cn2: number, vn1: number, vn2: number, g: number): void {
+    const gc = new Complex(g, 0);
+    this.stampMatrixC(cn1, vn1, gc);
+    this.stampMatrixC(cn2, vn2, gc);
+    this.stampMatrixC(cn1, vn2, gc.neg());
+    this.stampMatrixC(cn2, vn1, gc.neg());
+  }
+
   /** Stamp an independent voltage source with complex phasor `v` (V(n2)-V(n1)=v). */
   stampVoltageSourceC(n1: number, n2: number, vs: number, v: Complex): void {
     const vn = this.nodeCount + vs;

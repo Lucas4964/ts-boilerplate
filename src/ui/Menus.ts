@@ -45,6 +45,15 @@ const MENU_BAR: { label: string; items: MenuItem[] }[] = [
           { label: "DC Current", mode: "DCCurrentElm" },
         ],
       },
+      {
+        label: "Controlled",
+        sub: [
+          { label: "VCVS (V→V)", mode: "VCVSElm" },
+          { label: "VCCS (V→I)", mode: "VCCSElm" },
+          { label: "CCVS (I→V)", mode: "CCVSElm" },
+          { label: "CCCS (I→I)", mode: "CCCSElm" },
+        ],
+      },
     ],
   },
   {

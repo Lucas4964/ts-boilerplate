@@ -11,6 +11,7 @@ import "./DCVoltageElm";
 import "./ACVoltageElm";
 import "./DCCurrentElm";
 import "./ACCurrentElm";
+import "./ControlledSourceElm";
 import "./GroundElm";
 import "./VoltageProbeElm";
 import "./DiffVoltageProbeElm";
