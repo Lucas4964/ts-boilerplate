@@ -1,6 +1,6 @@
 import { SimElement } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
-import { Point, distanceToRect } from "../geom/Point";
+import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
 import { registerElement } from "./ElementRegistry";
 import { getShortUnitText, round4 } from "../util/format";
@@ -81,12 +81,6 @@ export class ThreePhaseTransformerElm extends SimElement {
   }
   override getPost(n: number): Point {
     return this.posts[n];
-  }
-
-  // Hit-test by the block's footprint (primary A corner to secondary c corner),
-  // so the whole 6-terminal box is grabbable without a padded halo.
-  override distanceTo(px: number, py: number): number {
-    return distanceToRect(px, py, this.posts[0].x, this.posts[0].y, this.posts[5].x, this.posts[5].y);
   }
 
   private group(): VectorGroup {

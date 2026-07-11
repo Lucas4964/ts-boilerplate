@@ -50,11 +50,17 @@ scripts over that protocol — hence the tiny local server.) On macOS/Linux use
 - **Connect elements** by overlapping their endpoints on the same grid point,
   or run a **Wire** between them (a wire merges its two endpoints into one node).
   Multiple **Ground** symbols also all share node 0.
-- **Select/move:** Select tool, click an element, drag the body to move it. Hit
-  areas hug each component's **real shape** — the line/leads for R/L/C and wires,
-  the circle for a source, the box for a transformer — so adjacent parts don't
-  steal each other's clicks. Drag on **empty space** to rubber-band a **selection
-  box** — every element it touches is selected (then **Delete** removes them all).
+- **Select/move:** Select tool — hovering highlights (cyan) the element the next
+  click will act on, exactly like CircuitJS. Hit-testing is a faithful port of
+  Falstad's `mouseSelect`: pure **world-coordinate bounding-box containment**
+  (each element sets a tight box: post span ± the symbol's half-width), with
+  ties broken by the distance to the element's axis and a wire opting out
+  beyond 10 units (so a long wire crossing a part doesn't steal its clicks),
+  plus a "near a post" fallback (√26 units) for tiny elements. Because there is
+  **no screen-pixel tolerance**, selection behaves identically at any zoom
+  level. Click to select, drag the body to move. Drag on **empty space** to
+  rubber-band a **selection box** — every element it touches is selected (then
+  **Delete** removes them all).
 - **Expand/compress:** drag an element's **endpoint handle** to lengthen or
   shorten it (resize one terminal while the other stays put). Ground is a
   single-terminal symbol but still exposes both ends, so you can stretch and
@@ -109,20 +115,19 @@ scripts over that protocol — hence the tiny local server.) On macOS/Linux use
   transconductance gm), **CCVS** (I→V, transresistance r) and **CCCS** (I→I,
   gain β) — modelled exactly on ngspice's `E/G/H/F` devices (same MNA stamps,
   linear, frequency-independent, valid in both transient and phasor modes).
-  Each is a 4-terminal block: the **control pair `c+/c−`** on the left, the
-  **output pair** on the right (diamond symbol: `+/−` for a voltage output, an
-  arrow for a current output). **Wiring the control**: for voltage control
-  (VCVS/VCCS) connect `c+/c−` **in parallel** with the sensed component — the
-  pair is ideal and draws no current; for current control (CCVS/CCCS) insert
-  `c+/c−` **in series** into the sensed branch — internally it is a 0 V source
-  (an ideal ammeter), exactly SPICE's "control through a named V source" made
-  self-contained (as Falstad's chips do). Positive output current exits the
-  `out+` terminal. **Bound control (no extra wiring):** instead of wiring
-  `c+/c−`, double-click the source and set **Control → Pick element on
-  canvas…**, then click the component whose quantity should drive it — a dashed
-  `ctrl` link shows the binding, and the control equals **exactly the value that
-  component's info panel shows** (its `Vd` with its own `*` polarity, or its `I`
-  with its own direction). Voltage control binds to any 2-terminal element;
+  **New controlled sources default to REMOTE control**: a clean **2-terminal**
+  element (leads + diamond; `+/−` for a voltage output, an arrow for a current
+  output; `*` on `out+`) whose control is another component picked on the
+  canvas — double-click → **Control → Pick control element…**, then click the
+  target. A dashed `ctrl` link shows the binding, and the control equals
+  **exactly the value that component's info panel shows** (its `Vd` with its
+  own `*` polarity, or its `I` with its own direction). The control element can
+  be **changed at any time** (the Pick… option is always offered), and
+  switching the Control choice to **Wired terminals (c+/c−)** turns the element
+  into the classic 4-terminal box: control pair on the left — parallel for
+  voltage control; in series (internal 0 V ammeter) for current control —
+  exactly SPICE's "control through a named V source" made self-contained (as
+  Falstad's chips do). Positive output current exits the `out+` terminal. Voltage control binds to any 2-terminal element;
   current control binds to anything whose current is expressible during the
   solve — voltage sources and the ammeter (their branch current is already an
   MNA unknown), R (Ohm's law), L/C (their trapezoidal companion — still exact),

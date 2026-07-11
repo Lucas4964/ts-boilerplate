@@ -1,6 +1,6 @@
 import { SimElement } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
-import { Point, distanceToRect } from "../geom/Point";
+import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
 import { registerElement } from "./ElementRegistry";
 import { getUnitText, formatPolar, round4 } from "../util/format";
@@ -52,13 +52,6 @@ export class TransformerElm extends SimElement {
   }
   override getPost(n: number): Point {
     return this.posts[n];
-  }
-
-  // Hit-test by the body rectangle spanning the four posts (primary left edge to
-  // secondary right edge), so the whole block is grabbable but nearby elements
-  // are not caught by a padded halo.
-  override distanceTo(px: number, py: number): number {
-    return distanceToRect(px, py, this.posts[0].x, this.posts[0].y, this.posts[3].x, this.posts[3].y);
   }
 
   // Two branch currents (primary, secondary) as extra MNA unknowns.

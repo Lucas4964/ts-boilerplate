@@ -59,11 +59,11 @@ export class AmmeterElm extends SimElement {
   }
 
   override draw(g: Graphics): void {
-    this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 12);
+    this.setBboxP(this.point1, this.point2, 12);
     this.draw2Leads(g);
     const center = this.interpPoint(this.lead1, this.lead2, 0.5);
     const r = 10;
-    g.setColor(this.selected ? SimElement.selectColor : METER_COLOR);
+    g.setColor(this.needsHighlight() ? SimElement.selectColor : METER_COLOR);
     g.drawCircle(center.x, center.y, r);
     g.setFontSize(12);
     const w = g.measureWidth("A");

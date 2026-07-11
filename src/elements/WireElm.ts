@@ -22,10 +22,18 @@ export class WireElm extends SimElement {
     return true;
   }
 
+  // Falstad's WireElm.getMouseDistance: a wire only claims the click when the
+  // cursor is within 10 world units of its line — its long thin bounding box
+  // must not steal clicks meant for elements it merely crosses.
+  override getMouseDistance(gx: number, gy: number): number {
+    const d2 = this.lineDistanceSq(this.x, this.y, this.x2, this.y2, gx, gy);
+    return d2 <= 100 ? d2 : -1;
+  }
+
   override draw(g: Graphics): void {
-    this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 4);
-    g.setColor(this.selected ? SimElement.selectColor : "#7ee787");
-    g.setLineWidth(this.selected ? 3 : 2);
+    this.setBboxP(this.point1, this.point2, 3);
+    g.setColor(this.needsHighlight() ? SimElement.selectColor : "#7ee787");
+    g.setLineWidth(this.needsHighlight() ? 3 : 2);
     g.drawLineP(this.point1, this.point2);
     this.drawPosts(g);
   }

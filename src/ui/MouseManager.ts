@@ -4,12 +4,13 @@ import { ControlledSourceElm } from "../elements/ControlledSourceElm";
 import { ElementRegistry } from "../elements/ElementRegistry";
 import { EditDialog } from "./EditDialog";
 import { ContextMenu } from "./ContextMenu";
-import { Rectangle } from "../geom/Point";
+import { Rectangle, distanceSq } from "../geom/Point";
 
-// Screen-pixel radius for grabbing an element's endpoint handle (to resize it)
-// and for hit-testing a thin element body. Both are converted to world units.
+// Screen-pixel radius for grabbing an element's endpoint handle (to resize it);
+// converted to world units. Body hit-testing itself is pure world-coordinate
+// bounding-box containment (Falstad-style — see findElementAt), so it needs no
+// screen-pixel tolerance.
 const HANDLE_HIT_PX = 12;
-const BODY_HIT_PX = 8;
 
 // Pointer interaction: place new elements (when a tool is selected), or
 // select / move / resize existing ones (in "select" mode). Dragging an endpoint
@@ -232,7 +233,17 @@ export class MouseManager {
     } else if (this.movingHandle) {
       this.movingHandle.el.dragHandle(this.movingHandle.which, gx, gy);
       this.sim.needAnalyze();
-    } else if (this.movingElement) {
+    } else if (!this.movingElement) {
+      // Falstad-style hover: the element under the cursor is highlighted so
+      // the user sees what the next click will act on (also previews the
+      // target while control-picking).
+      if (this.sim.mouseMode === "select" || this.pickingFor) {
+        SimElement.hoverElm = this.findElementAt(w.x, w.y);
+      } else {
+        SimElement.hoverElm = null;
+      }
+    }
+    if (this.movingElement) {
       const dx = gx - this.lastGX;
       const dy = gy - this.lastGY;
       if (dx !== 0 || dy !== 0) {
@@ -310,22 +321,40 @@ export class MouseManager {
     return this.sim.elmList.filter((e) => e.selected).length;
   }
 
+  /**
+   * Faithful port of Falstad's mouseSelect hit test (MouseManager.java):
+   * everything in WORLD coordinates — no screen-pixel tolerance, so behaviour
+   * is identical at any zoom level.
+   *  1. Among elements whose bounding box (set tightly by each draw()) contains
+   *     the point, pick the smallest getMouseDistance() ≥ 0 (perpendicular
+   *     distance² to the post-to-post line; −1 opts out — wires use a
+   *     threshold so their long thin box doesn't steal crossing clicks).
+   *  2. If no box contains the point, an element still wins if the point is
+   *     within √26 world units of one of its posts (how tiny parts get picked).
+   */
   private findElementAt(wx: number, wy: number): SimElement | null {
     const list = this.sim.elmList;
-    const tol = BODY_HIT_PX / this.sim.scale;
-    // Pick the *closest* element by its shape-accurate distance (distanceTo
-    // returns 0 inside a solid body, the perpendicular distance to the drawn
-    // line/edge otherwise). A small `tol` adds a comfortable grab margin without
-    // the old padded-rectangle halo that made neighbours overlap. Iterating from
-    // the top of the z-order means the frontmost element wins ties.
     let best: SimElement | null = null;
     let bestDist = Infinity;
-    for (let i = list.length - 1; i >= 0; i--) {
-      const e = list[i];
-      const dist = e.distanceTo(wx, wy);
-      if (dist <= tol && dist < bestDist) {
-        best = e;
-        bestDist = dist;
+    for (const e of list) {
+      if (e.getBoundingBox().contains(wx, wy)) {
+        const dist = e.getMouseDistance(wx, wy);
+        if (dist >= 0 && dist < bestDist) {
+          bestDist = dist;
+          best = e;
+        }
+      }
+    }
+    if (best === null) {
+      // post-proximity fallback (Falstad: distanceSq < 26)
+      outer: for (const e of list) {
+        for (let j = 0; j < e.getPostCount(); j++) {
+          const p = e.getPost(j);
+          if (distanceSq(p.x, p.y, wx, wy) < 26) {
+            best = e;
+            break outer;
+          }
+        }
       }
     }
     return best;

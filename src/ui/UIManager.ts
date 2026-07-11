@@ -69,6 +69,10 @@ export class UIManager {
     // label itself for the current mode (physical units vs jXL/-jXC in ohms).
     SimElement.analysisMode = s.sim.analysisMode;
     SimElement.analysisFrequency = s.sim.analysisFrequency;
+    // Drop a stale hover highlight if its element was deleted/cleared.
+    if (SimElement.hoverElm && !s.elmList.includes(SimElement.hoverElm)) {
+      SimElement.hoverElm = null;
+    }
 
     this.draw();
     this.updateInfobar();

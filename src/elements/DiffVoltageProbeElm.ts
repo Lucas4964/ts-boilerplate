@@ -36,7 +36,7 @@ export class DiffVoltageProbeElm extends SimElement {
   override draw(g: Graphics): void {
     this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 8);
     // dashed span A—B (measurement only, not an electrical connection)
-    g.setColor(this.selected ? SimElement.selectColor : PROBE_COLOR);
+    g.setColor(this.needsHighlight() ? SimElement.selectColor : PROBE_COLOR);
     g.setLineDash(4, 4);
     g.drawLineP(this.point1, this.point2);
     g.setLineDash(0, 0);

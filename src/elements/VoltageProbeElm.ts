@@ -55,7 +55,7 @@ export class VoltageProbeElm extends SimElement {
     g.drawLineP(this.point1, this.point2); // lead from tip (node) to the body
     g.fillCircle(this.point1.x, this.point1.y, 3); // tip on the measured node
     // body disk with a "V"
-    g.setColor(this.selected ? SimElement.selectColor : PROBE_COLOR);
+    g.setColor(this.needsHighlight() ? SimElement.selectColor : PROBE_COLOR);
     g.drawCircle(this.point2.x, this.point2.y, 7);
     g.setFontSize(10);
     g.drawString("V", this.point2.x - 3, this.point2.y + 4);

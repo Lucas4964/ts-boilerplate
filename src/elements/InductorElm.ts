@@ -74,26 +74,36 @@ export class InductorElm extends SimElement {
     return { kind: "linear", p: this.nodes[0], n: this.nodes[1], y, iConst: Complex.ZERO };
   }
 
+  // Faithful port of Falstad's InductorElm.draw + CircuitElm.drawCoil: the coil
+  // is ceil(len/11) tangent SEMICIRCLES (radius len/(2·loopCt), arcs π→2π),
+  // drawn in a local frame set up by the same canvas affine transform the Java
+  // uses, stroke width 3, round line caps. hs = 8.
   override draw(g: Graphics): void {
-    this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 10);
+    const hs = 8;
+    this.setBboxP(this.point1, this.point2, hs);
     this.draw2Leads(g);
-    this.color(g);
-    // four coil "bumps" drawn as a single polyline (|sin| humps on one side)
-    const segs = 40;
-    const humps = 4;
-    const amp = 7;
-    const xs: number[] = [];
-    const ys: number[] = [];
-    for (let i = 0; i <= segs; i++) {
-      const f = i / segs;
-      const off = Math.abs(Math.sin(f * humps * Math.PI)) * amp;
-      const p = this.interpPoint(this.lead1, this.lead2, f, off);
-      xs.push(p.x);
-      ys.push(p.y);
+    const len = Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y);
+    if (len > 0) {
+      const ux = (this.lead2.x - this.lead1.x) / len;
+      const uy = (this.lead2.y - this.lead1.y) / len;
+      this.color(g);
+      g.save();
+      g.setLineWidth(3);
+      g.setLineCap("round");
+      g.transform(ux, uy, -uy, ux, this.lead1.x, this.lead1.y);
+      const ctx = g.ctx;
+      const loopCt = Math.ceil(len / 11);
+      for (let loop = 0; loop < loopCt; loop++) {
+        ctx.beginPath();
+        ctx.moveTo((len * loop) / loopCt, 0);
+        ctx.arc((len * (loop + 0.5)) / loopCt, 0, len / (2 * loopCt), Math.PI, Math.PI * 2);
+        ctx.lineTo((len * (loop + 1)) / loopCt, 0);
+        ctx.stroke();
+      }
+      g.restore();
     }
-    g.drawPolyline(xs, ys, xs.length);
     this.doDots(g);
-    this.drawValues(g, this.canvasValueText(), 10);
+    this.drawValues(g, this.canvasValueText(), hs);
     this.drawReferenceMark(g);
     this.drawPosts(g);
   }

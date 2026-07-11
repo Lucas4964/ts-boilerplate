@@ -40,6 +40,15 @@ export class Graphics {
     this.ctx.rotate(rad);
   }
 
+  /** Append an affine transform (canvas 2D transform matrix a,b,c,d,e,f). */
+  transform(a: number, b: number, c: number, d: number, e: number, f: number): void {
+    this.ctx.transform(a, b, c, d, e, f);
+  }
+
+  setLineCap(cap: CanvasLineCap): void {
+    this.ctx.lineCap = cap;
+  }
+
   fillRect(x: number, y: number, w: number, h: number): void {
     this.ctx.fillRect(x, y, w, h);
   }

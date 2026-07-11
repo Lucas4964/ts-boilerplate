@@ -54,19 +54,6 @@ export function distanceSq(x1: number, y1: number, x2: number, y2: number): numb
   return dx * dx + dy * dy;
 }
 
-/** Distance from (px,py) to the axis-aligned rectangle (x1,y1)-(x2,y2); 0 when
- *  the point is inside. Used so 2-D elements (transformers) hit-test by their
- *  real footprint instead of a padded bounding box. */
-export function distanceToRect(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
-  const xmin = Math.min(x1, x2);
-  const xmax = Math.max(x1, x2);
-  const ymin = Math.min(y1, y2);
-  const ymax = Math.max(y1, y2);
-  const dx = Math.max(xmin - px, 0, px - xmax);
-  const dy = Math.max(ymin - py, 0, py - ymax);
-  return Math.hypot(dx, dy);
-}
-
 /** Linear interpolation from a to b at fraction f, offset by g pixels perpendicular. */
 export function interpPoint(a: Point, b: Point, f: number, g = 0): Point {
   const gx = b.y - a.y;

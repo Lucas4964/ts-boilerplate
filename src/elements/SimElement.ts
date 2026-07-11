@@ -53,6 +53,11 @@ export abstract class SimElement {
   selected = false;
   boundingBox = new Rectangle();
 
+  /** Element currently under the mouse cursor (Falstad's mouseElmRef): set by
+   *  MouseManager on pointer move; hovering highlights the element the next
+   *  click will act on. */
+  static hoverElm: SimElement | null = null;
+
   /** Pixels of "current" travel per frame; set globally by UIManager each frame. */
   static currentMult = 0;
   static currentColor = "#ffff00";
@@ -414,6 +419,39 @@ export abstract class SimElement {
     this.boundingBox.height = Math.abs(y2 - y1) + 2 * pad;
   }
 
+  /**
+   * Falstad's setBbox(p1, p2, w): the axis-aligned box spanning the two posts,
+   * widened by ±w along the perpendicular unit vector (dpx1, dpy1). Gives the
+   * TIGHT world-space box selection needs (no padding along the axis).
+   */
+  protected setBboxP(p1: Point, p2: Point, w: number): void {
+    const x1 = Math.min(p1.x, p2.x);
+    const y1 = Math.min(p1.y, p2.y);
+    const x2 = Math.max(p1.x, p2.x);
+    const y2 = Math.max(p1.y, p2.y);
+    this.boundingBox.x = x1;
+    this.boundingBox.y = y1;
+    this.boundingBox.width = x2 - x1 + 1;
+    this.boundingBox.height = y2 - y1 + 1;
+    const dpx = this.dpx1 * w;
+    const dpy = this.dpy1 * w;
+    this.adjustBbox(p1.x + dpx, p1.y + dpy, p1.x - dpx, p1.y - dpy);
+  }
+
+  /** Enlarge the bounding box to also contain the rectangle (x1,y1)-(x2,y2). */
+  protected adjustBbox(x1: number, y1: number, x2: number, y2: number): void {
+    if (x1 > x2) [x1, x2] = [x2, x1];
+    if (y1 > y2) [y1, y2] = [y2, y1];
+    const nx1 = Math.min(this.boundingBox.x, x1);
+    const ny1 = Math.min(this.boundingBox.y, y1);
+    const nx2 = Math.max(this.boundingBox.x + this.boundingBox.width, x2);
+    const ny2 = Math.max(this.boundingBox.y + this.boundingBox.height, y2);
+    this.boundingBox.x = nx1;
+    this.boundingBox.y = ny1;
+    this.boundingBox.width = nx2 - nx1;
+    this.boundingBox.height = ny2 - ny1;
+  }
+
   getBoundingBox(): Rectangle {
     return this.boundingBox;
   }
@@ -426,25 +464,41 @@ export abstract class SimElement {
    * transformer its rectangle) so the hit area matches the real symbol instead
    * of a padded bounding box.
    */
-  distanceTo(px: number, py: number): number {
-    return Math.sqrt(this.distanceToSegment(px, py, this.x, this.y, this.x2, this.y2));
+  /**
+   * Squared distance from (gx,gy) to the infinite post-to-post line — Falstad's
+   * lineDistanceSq, used to tie-break when several bounding boxes contain the
+   * cursor (the closest-to-its-axis element wins).
+   */
+  protected lineDistanceSq(xa: number, ya: number, xb: number, yb: number, gx: number, gy: number): number {
+    const dtop = (yb - ya) * gx - (xb - xa) * gy + xb * ya - yb * xa;
+    const dbot = (yb - ya) * (yb - ya) + (xb - xa) * (xb - xa);
+    if (dbot === 0) return distanceSq(gx, gy, xa, ya);
+    return (dtop * dtop) / dbot;
   }
 
-  private distanceToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len2 = dx * dx + dy * dy;
-    if (len2 === 0) return distanceSq(px, py, x1, y1);
-    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
-    t = Math.max(0, Math.min(1, t));
-    return distanceSq(px, py, x1 + t * dx, y1 + t * dy);
+  /**
+   * Falstad's getMouseDistance: ranking metric for selection among elements
+   * whose bounding box contains the cursor. Returning −1 means "don't select
+   * me from this position" (wires use a threshold so their long thin bbox
+   * doesn't steal clicks meant for elements they cross).
+   */
+  getMouseDistance(gx: number, gy: number): number {
+    if (this.getPostCount() === 0) {
+      return distanceSq(gx, gy, (this.x + this.x2) / 2, (this.y + this.y2) / 2);
+    }
+    return this.lineDistanceSq(this.x, this.y, this.x2, this.y2, gx, gy);
   }
 
   // ---- drawing helpers -----------------------------------------------------
 
+  /** Falstad's needsHighlight: hovered (mouseElm) or selected → drawn cyan. */
+  needsHighlight(): boolean {
+    return this.selected || SimElement.hoverElm === this;
+  }
+
   protected color(g: Graphics): void {
-    g.setColor(this.selected ? SimElement.selectColor : SimElement.elementColor);
-    g.setLineWidth(this.selected ? 2 : 1.5);
+    g.setColor(this.needsHighlight() ? SimElement.selectColor : SimElement.elementColor);
+    g.setLineWidth(this.needsHighlight() ? 2 : 1.5);
   }
 
   protected drawPosts(g: Graphics): void {

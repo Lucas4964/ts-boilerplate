@@ -107,7 +107,7 @@ export class CapacitorElm extends SimElement {
   }
 
   override draw(g: Graphics): void {
-    this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 12);
+    this.setBboxP(this.point1, this.point2, 12);
     this.draw2Leads(g);
     this.color(g);
     g.drawLineP(this.plate1[0], this.plate1[1]);

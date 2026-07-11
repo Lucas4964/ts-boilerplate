@@ -104,14 +104,6 @@ export class CurrentElm extends SimElement {
     return Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y) / 2;
   }
 
-  // Hit area = the leads (segment) plus the round body, matching VoltageElm.
-  override distanceTo(px: number, py: number): number {
-    const seg = super.distanceTo(px, py);
-    const c = this.interpPoint(this.lead1, this.lead2, 0.5);
-    const circle = Math.max(0, Math.hypot(px - c.x, py - c.y) - this.radius());
-    return Math.min(seg, circle);
-  }
-
   /** Directional arrow along the lead axis (tail at post0 side, head toward post1). */
   protected drawArrow(g: Graphics): void {
     const tail = this.interpPoint(this.lead1, this.lead2, 0.28);
@@ -133,7 +125,8 @@ export class CurrentElm extends SimElement {
   }
 
   override draw(g: Graphics): void {
-    this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 20);
+    // Tight Falstad-style bbox: post span widened by the circle radius.
+    this.setBboxP(this.point1, this.point2, this.radius());
     this.draw2Leads(g);
     const center = this.interpPoint(this.lead1, this.lead2, 0.5);
     this.color(g);

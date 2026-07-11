@@ -77,8 +77,8 @@ export class CurrentProbeElm extends SimElement {
   override draw(g: Graphics): void {
     // Anchor on the bound terminal (the clamp point); fall back to the click point.
     const at = this.hasTarget() ? this.target!.getPost(this.targetPost) : this.point1;
-    g.setColor(this.selected ? SimElement.selectColor : PROBE_COLOR);
-    g.setLineWidth(this.selected ? 2 : 1.5);
+    g.setColor(this.needsHighlight() ? SimElement.selectColor : PROBE_COLOR);
+    g.setLineWidth(this.needsHighlight() ? 2 : 1.5);
     g.drawCircle(at.x, at.y, 6); // clamp ring around the terminal
     // a short tail toward the probe's own point (for grabbing/moving + label)
     const lx = this.x2;

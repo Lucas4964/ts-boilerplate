@@ -58,24 +58,38 @@ export class ResistorElm extends SimElement {
     };
   }
 
+  // Faithful port of Falstad's ResistorElm.draw (US zigzag): the body is drawn
+  // in a local frame — x runs 0→len along lead1→lead2, +y perpendicular — set
+  // up with a canvas affine transform, exactly like the Java (g.context
+  // .transform(ux, uy, −uy, ux, lead1.x, lead1.y)). 4 loop iterations produce
+  // the classic 8-peak zigzag with amplitude hs = 6 (2 when the element is
+  // very short), stroke width 3.
   override draw(g: Graphics): void {
-    this.setBbox(this.point1.x, this.point1.y, this.point2.x, this.point2.y, 8);
+    let hs = 6;
+    this.setBboxP(this.point1, this.point2, hs);
     this.draw2Leads(g);
-    this.color(g);
-    const segs = 16;
-    const xs: number[] = [this.lead1.x];
-    const ys: number[] = [this.lead1.y];
-    for (let i = 1; i < segs; i++) {
-      const off = i % 2 === 1 ? 5 : -5;
-      const p = this.interpPoint(this.lead1, this.lead2, i / segs, off);
-      xs.push(p.x);
-      ys.push(p.y);
+    const len = Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y);
+    if (len > 0) {
+      const ux = (this.lead2.x - this.lead1.x) / len;
+      const uy = (this.lead2.y - this.lead1.y) / len;
+      this.color(g);
+      g.save();
+      g.setLineWidth(3);
+      g.transform(ux, uy, -uy, ux, this.lead1.x, this.lead1.y);
+      if (this.dn < 30) hs = 2;
+      const ctx = g.ctx;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      for (let i = 0; i < 4; i++) {
+        ctx.lineTo(((1 + 4 * i) * len) / 16, hs);
+        ctx.lineTo(((3 + 4 * i) * len) / 16, -hs);
+      }
+      ctx.lineTo(len, 0);
+      ctx.stroke();
+      g.restore();
     }
-    xs.push(this.lead2.x);
-    ys.push(this.lead2.y);
-    g.drawPolyline(xs, ys, xs.length);
     this.doDots(g);
-    this.drawValues(g, this.canvasValueText(), 9);
+    this.drawValues(g, this.canvasValueText(), hs + 2);
     this.drawReferenceMark(g);
     this.drawPosts(g);
   }

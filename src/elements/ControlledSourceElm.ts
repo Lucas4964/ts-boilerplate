@@ -1,6 +1,6 @@
 import { SimElement } from "./SimElement";
 import { Graphics } from "../ui/Graphics";
-import { Point, distanceToRect } from "../geom/Point";
+import { Point } from "../geom/Point";
 import { EditInfo } from "./EditInfo";
 import { registerElement } from "./ElementRegistry";
 import { getUnitText, formatPolar, round4 } from "../util/format";
@@ -52,11 +52,33 @@ export abstract class ControlledSourceElm extends SimElement {
   protected posts: Point[] = Array.from({ length: 4 }, () => new Point());
   protected cposts: Point[] = Array.from({ length: 4 }, () => new Point());
 
+  // Control mode lives in the serialized `flags` header, bit 1:
+  //   1 = REMOTE (default for new elements): a plain 2-terminal output; the
+  //       control is another element picked on the canvas (dashed ctrl link).
+  //   0 = WIRED: the classic 4-terminal box with the c+/c− pair (old saves,
+  //       whose flags are 0, keep their wired topology).
+  static readonly FLAG_REMOTE = 1;
+  override getDefaultFlags(): number {
+    return ControlledSourceElm.FLAG_REMOTE;
+  }
+  isRemote(): boolean {
+    return (this.flags & ControlledSourceElm.FLAG_REMOTE) !== 0;
+  }
+  setRemote(remote: boolean): void {
+    this.flags = remote ? this.flags | ControlledSourceElm.FLAG_REMOTE : this.flags & ~ControlledSourceElm.FLAG_REMOTE;
+  }
+
   override getPostCount(): number {
-    return 4;
+    return this.isRemote() ? 2 : 4;
   }
   override getPost(n: number): Point {
+    // Remote: post 0 = out− (point1), post 1 = out+ (point2) — the standard
+    // 2-terminal source convention (post 1 is the driven "+" terminal).
+    if (this.isRemote()) return n === 0 ? this.point1 : this.point2;
     return this.posts[n];
+  }
+  override getReferenceNode(): number {
+    return this.isRemote() ? 1 : 0;
   }
 
   /** Label for the gain edit field, e.g. "Gain (V/V)". */
@@ -73,6 +95,11 @@ export abstract class ControlledSourceElm extends SimElement {
 
   override setPoints(): void {
     super.setPoints();
+    if (this.isRemote()) {
+      // Plain 2-terminal linear geometry (like the independent sources).
+      this.calcLeads(36);
+      return;
+    }
     // Canonical axis-aligned square-ish box; control = left, output = right.
     const xL = this.x;
     const xR = Math.abs(this.x2 - this.x) < 16 ? this.x + 64 : this.x2;
@@ -109,11 +136,12 @@ export abstract class ControlledSourceElm extends SimElement {
     }
   }
 
-  override distanceTo(px: number, py: number): number {
-    return distanceToRect(px, py, this.posts[0].x, this.posts[0].y, this.posts[3].x, this.posts[3].y);
-  }
-
   override rotate(quarter: number, cx: number, cy: number, snap: (v: number) => number): void {
+    if (this.isRemote()) {
+      // Remote mode is a plain 2-terminal element — rotate the endpoints.
+      super.rotate(quarter, cx, cy, snap);
+      return;
+    }
     const bx = (this.x + this.x2) / 2;
     const by = (this.y + this.y2) / 2;
     const dx = bx - cx;
@@ -144,7 +172,68 @@ export abstract class ControlledSourceElm extends SimElement {
 
   // --- drawing ---------------------------------------------------------------
 
+  /** Remote-mode drawing: a clean 2-terminal source — leads + a diamond on the
+   *  axis (the dependent-source symbol), reference star on out+ (post 1), and
+   *  the dashed "ctrl" link to the bound control element. */
+  private drawRemote(g: Graphics): void {
+    const s = 12; // diamond half-size
+    this.setBboxP(this.point1, this.point2, s + 2);
+    this.curcount = this.updateDotCount(this.outputCurrent(), this.curcount);
+    this.draw2Leads(g);
+    const len = Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y);
+    if (len > 0) {
+      const ux = (this.lead2.x - this.lead1.x) / len;
+      const uy = (this.lead2.y - this.lead1.y) / len;
+      this.color(g);
+      g.save();
+      g.transform(ux, uy, -uy, ux, this.lead1.x, this.lead1.y);
+      const m = len / 2;
+      const ctx = g.ctx;
+      ctx.beginPath();
+      ctx.moveTo(m - s, 0);
+      ctx.lineTo(m, -s);
+      ctx.lineTo(m + s, 0);
+      ctx.lineTo(m, s);
+      ctx.closePath();
+      ctx.stroke();
+      if (this.currentOutput()) {
+        // arrow along the axis pointing toward out+ (post 1 side)
+        g.drawLine(m - s + 4, 0, m + s - 4, 0);
+        g.drawLine(m + s - 4, 0, m + s - 9, -4);
+        g.drawLine(m + s - 4, 0, m + s - 9, 4);
+      } else {
+        // "+" toward post 1 (out+), "−" toward post 0
+        g.drawLine(m + 4, 0, m + 8, 0);
+        g.drawLine(m + 6, -2, m + 6, 2);
+        g.drawLine(m - 8, 0, m - 4, 0);
+      }
+      g.restore();
+    }
+    this.doDots(g);
+    this.drawReferenceMark(g); // "*" on out+ (post 1)
+    this.drawValues(g, this.getType().replace("Elm", "") + " " + this.gainText(), s + 4);
+    this.drawPosts(g);
+    // dashed link to the control element (or nothing when no control yet)
+    if (this.controlTarget) {
+      const c = this.interpPoint(this.lead1, this.lead2, 0.5);
+      const t = this.controlTarget;
+      const tx = (t.x + t.x2) / 2;
+      const ty = (t.y + t.y2) / 2;
+      g.setColor("#ffaa44");
+      g.setLineWidth(1);
+      g.setLineDash(4, 4);
+      g.drawLine(c.x, c.y, tx, ty);
+      g.setLineDash(0, 0);
+      g.setFontSize(10);
+      g.drawString("ctrl", (c.x + tx) / 2 + 4, (c.y + ty) / 2 - 2);
+    }
+  }
+
   override draw(g: Graphics): void {
+    if (this.isRemote()) {
+      this.drawRemote(g);
+      return;
+    }
     const xL = this.cposts[0].x;
     const xR = this.cposts[2].x;
     const yT = this.cposts[0].y;
@@ -262,11 +351,16 @@ export abstract class ControlledSourceElm extends SimElement {
     const k = n - 1;
     if (k < this.extraEditCount()) return this.getExtraEditInfo(k);
     if (n === 1 + this.extraEditCount()) {
-      const bound = this.controlTarget !== null;
-      const pickLabel = bound
-        ? "Bound: " + this.controlTarget!.getType().replace("Elm", "")
-        : "Pick element on canvas…";
-      return EditInfo.choice("Control", ["Wired (c+/c−)", pickLabel], bound ? 1 : 0);
+      const remoteLabel = this.controlTarget
+        ? "Remote: " + this.controlTarget.getType().replace("Elm", "")
+        : "Remote (no control picked)";
+      // "Pick…" is always offered, so the control element can be CHANGED at
+      // any time (re-pick) — not only when unbound.
+      return EditInfo.choice(
+        "Control",
+        ["Wired terminals (c+/c−)", remoteLabel, "Pick control element…"],
+        this.isRemote() ? 1 : 0,
+      );
     }
     return null;
   }
@@ -281,8 +375,16 @@ export abstract class ControlledSourceElm extends SimElement {
   override setEditChoice(n: number, choiceIndex: number): void {
     if (n !== 1 + this.extraEditCount()) return;
     if (choiceIndex === 0) {
-      this.controlTarget = null; // back to the wired c+/c− pair
-    } else if (!this.controlTarget) {
+      // back to the wired c+/c− pair (4-terminal box)
+      this.setRemote(false);
+      this.controlTarget = null;
+      this.setPoints();
+    } else if (choiceIndex === 1) {
+      this.setRemote(true); // keep whatever control is bound
+      this.setPoints();
+    } else if (choiceIndex === 2) {
+      this.setRemote(true);
+      this.setPoints();
       this.pickRequested = true; // EditDialog closes and starts the canvas pick
     }
   }
@@ -311,6 +413,9 @@ export abstract class ControlledSourceElm extends SimElement {
     if (a.length > 1) this.orientation = ((Math.round(a[1]) % 4) + 4) % 4;
     this.pendingTargetIndex = a.length > 2 ? Math.round(a[2]) : -1;
     this.controlTarget = null; // resolved on the next analyze (bindMeasurement)
+    // A bound control implies remote mode; migrates saves from before the
+    // wired/remote split (bound elements become the clean 2-terminal form).
+    if (this.pendingTargetIndex >= 0) this.setRemote(true);
   }
 
   /** Structural target check (full electrical check happens at pick/stamp time,
@@ -331,37 +436,50 @@ export abstract class ControlledSourceElm extends SimElement {
   }
 
   /** Control node pair (p,n) so that V(p)−V(n) is the control voltage: the
-   *  bound target's nodes ordered by ITS reference convention (the `*` mark),
-   *  or this element's own c+/c− posts in wired mode. */
+   *  bound target's nodes ordered by ITS reference convention (the `*` mark);
+   *  the own c+/c− posts in wired mode; ground/ground when remote with no
+   *  control picked yet (stamp entries on node 0 are dropped → output is 0). */
   protected controlNodes(): { p: number; n: number } {
     const t = this.controlTarget;
     if (t) {
       return t.getReferenceNode() === 1 ? { p: t.nodes[1], n: t.nodes[0] } : { p: t.nodes[0], n: t.nodes[1] };
     }
+    if (this.isRemote()) return { p: 0, n: 0 };
     return { p: this.nodes[0], n: this.nodes[1] };
   }
 
-  /** Control voltage: the bound target's Vd (its own polarity) or V(c+)−V(c−). */
+  /** Output node pair {p: out+, n: out−} for the current mode (remote: the two
+   *  posts with out+ = post 1; wired: box posts 2/3). */
+  protected outNodes(): { p: number; n: number } {
+    return this.isRemote() ? { p: this.nodes[1], n: this.nodes[0] } : { p: this.nodes[2], n: this.nodes[3] };
+  }
+
+  /** Control voltage: the bound target's Vd (its own polarity), the wired
+   *  c+/c− pair, or 0 when remote with no control picked. */
   protected controlVolts(): number {
-    return this.controlTarget ? this.controlTarget.getVoltageDiff() : this.volts[0] - this.volts[1];
+    if (this.controlTarget) return this.controlTarget.getVoltageDiff();
+    return this.isRemote() ? 0 : this.volts[0] - this.volts[1];
   }
   protected controlVoltsPhasor(): Complex {
-    return this.controlTarget ? this.controlTarget.getVoltageDiffPhasor() : this.voltsPhasor[0].sub(this.voltsPhasor[1]);
+    if (this.controlTarget) return this.controlTarget.getVoltageDiffPhasor();
+    return this.isRemote() ? Complex.ZERO : this.voltsPhasor[0].sub(this.voltsPhasor[1]);
   }
-  /** Control current: the bound target's I (its own direction) or the internal
-   *  0 V sense reading (this.current, delivered by the engine in wired mode). */
+  /** Control current: the bound target's I (its own direction), the internal
+   *  0 V sense reading (wired mode), or 0 when remote and unbound. */
   protected controlCurrent(): number {
-    return this.controlTarget ? this.controlTarget.getCurrent() : this.current;
+    if (this.controlTarget) return this.controlTarget.getCurrent();
+    return this.isRemote() ? 0 : this.current;
   }
   protected controlCurrentPhasor(): Complex {
-    return this.controlTarget ? this.controlTarget.getCurrentPhasor() : this.currentPhasor;
+    if (this.controlTarget) return this.controlTarget.getCurrentPhasor();
+    return this.isRemote() ? Complex.ZERO : this.currentPhasor;
   }
-  /** Output voltage V(out+) − V(out−). */
+  /** Output voltage V(out+) − V(out−), mode-aware. */
   protected outputVolts(): number {
-    return this.volts[2] - this.volts[3];
+    return this.isRemote() ? this.volts[1] - this.volts[0] : this.volts[2] - this.volts[3];
   }
   protected outputVoltsPhasor(): Complex {
-    return this.voltsPhasor[2].sub(this.voltsPhasor[3]);
+    return this.isRemote() ? this.voltsPhasor[1].sub(this.voltsPhasor[0]) : this.voltsPhasor[2].sub(this.voltsPhasor[3]);
   }
 
   // Delivered power (positive when sourcing, like the independent sources).
@@ -373,7 +491,8 @@ export abstract class ControlledSourceElm extends SimElement {
   }
 
   private boundInfo(): string {
-    return this.controlTarget ? "ctrl ← " + this.controlTarget.getType().replace("Elm", "") + " (bound)" : "ctrl: wired c+/c−";
+    if (this.controlTarget) return "ctrl ← " + this.controlTarget.getType().replace("Elm", "") + " (remote)";
+    return this.isRemote() ? "ctrl: remote (none picked)" : "ctrl: wired c+/c−";
   }
 
   override getInfo(): string[] {
@@ -431,14 +550,16 @@ export class VCVSElm extends ControlledSourceElm {
   }
   override stamp(sim: SimulationManager): void {
     const vn = sim.nodeCount + this.voltSource;
-    sim.stampVoltageSource(this.nodes[3], this.nodes[2], this.voltSource); // no RHS: row stays = 0
+    const o = this.outNodes();
+    sim.stampVoltageSource(o.n, o.p, this.voltSource); // no RHS: row stays = 0
     const { p, n } = this.controlNodes(); // own c pair, or the bound target's nodes
     sim.stampMatrix(vn, p, -this.gain);
     sim.stampMatrix(vn, n, this.gain);
   }
   override stampPhasor(sim: SimulationManager): void {
     const vn = sim.nodeCount + this.voltSource;
-    sim.stampVoltageSourceC(this.nodes[3], this.nodes[2], this.voltSource, Complex.ZERO);
+    const o = this.outNodes();
+    sim.stampVoltageSourceC(o.n, o.p, this.voltSource, Complex.ZERO);
     const { p, n } = this.controlNodes();
     sim.stampMatrixC(vn, p, new Complex(-this.gain, 0));
     sim.stampMatrixC(vn, n, new Complex(this.gain, 0));
@@ -450,11 +571,18 @@ export class VCVSElm extends ControlledSourceElm {
     return this.currentPhasor;
   }
   override getPostCurrent(n: number): number {
+    if (this.isRemote()) {
+      // 2-terminal source convention (post 1 = out+, delivered)
+      return n === 1 ? -this.current : this.current;
+    }
     if (n === 2) return -this.current; // into out+ = −(delivered)
     if (n === 3) return this.current;
     return 0; // ideal control pair
   }
   override getPostCurrentPhasor(n: number): Complex {
+    if (this.isRemote()) {
+      return n === 1 ? this.currentPhasor.neg() : this.currentPhasor;
+    }
     if (n === 2) return this.currentPhasor.neg();
     if (n === 3) return this.currentPhasor;
     return Complex.ZERO;
@@ -485,12 +613,14 @@ export class VCCSElm extends ControlledSourceElm {
   }
   override stamp(sim: SimulationManager): void {
     // takes gm·Vc from out− and delivers it at out+ (positive i exits out+)
+    const o = this.outNodes();
     const { p, n } = this.controlNodes();
-    sim.stampVCCurrentSource(this.nodes[3], this.nodes[2], p, n, this.gain);
+    sim.stampVCCurrentSource(o.n, o.p, p, n, this.gain);
   }
   override stampPhasor(sim: SimulationManager): void {
+    const o = this.outNodes();
     const { p, n } = this.controlNodes();
-    sim.stampVCCurrentSourceC(this.nodes[3], this.nodes[2], p, n, this.gain);
+    sim.stampVCCurrentSourceC(o.n, o.p, p, n, this.gain);
   }
   override calculateCurrent(): void {
     this.current = this.gain * this.controlVolts();
@@ -505,11 +635,13 @@ export class VCCSElm extends ControlledSourceElm {
     return this.currentPhasor;
   }
   override getPostCurrent(n: number): number {
+    if (this.isRemote()) return n === 1 ? -this.current : this.current;
     if (n === 2) return -this.current;
     if (n === 3) return this.current;
     return 0;
   }
   override getPostCurrentPhasor(n: number): Complex {
+    if (this.isRemote()) return n === 1 ? this.currentPhasor.neg() : this.currentPhasor;
     if (n === 2) return this.currentPhasor.neg();
     if (n === 3) return this.currentPhasor;
     return Complex.ZERO;
@@ -540,73 +672,77 @@ export class CCCSElm extends ControlledSourceElm {
     return true;
   }
   override getVoltageSourceCount(): number {
-    return 1; // the 0 V sense (inert when bound to an external control)
+    return this.isRemote() ? 0 : 1; // wired: the internal 0 V sense; remote: none
   }
   override stamp(sim: SimulationManager): void {
-    const vn = sim.nodeCount + this.voltSource;
-    sim.stampVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, 0); // sense: c+ → c−
-    const t = this.controlTarget;
-    const sense = t ? t.currentSense(sim) : null;
-    if (t && !sense) this.controlTarget = null; // target's current not expressible → wired fallback
-    if (!this.controlTarget) {
-      sim.stampMatrix(this.nodes[3], vn, this.gain); // β·I leaves out−
-      sim.stampMatrix(this.nodes[2], vn, -this.gain); // β·I delivered at out+
+    const o = this.outNodes();
+    if (!this.isRemote()) {
+      // wired: internal 0 V sense between c+ and c−, output coupled to its row
+      const vn = sim.nodeCount + this.voltSource;
+      sim.stampVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, 0);
+      sim.stampMatrix(o.n, vn, this.gain); // β·I leaves out−
+      sim.stampMatrix(o.p, vn, -this.gain); // β·I delivered at out+
       return;
     }
-    if (sense!.kind === "branch") {
-      const col = sim.nodeCount + sense!.vs; // target's own branch-current column
-      sim.stampMatrix(this.nodes[3], col, this.gain);
-      sim.stampMatrix(this.nodes[2], col, -this.gain);
-    } else if (sense!.g !== 0) {
+    const t = this.controlTarget;
+    const sense = t ? t.currentSense(sim) : null;
+    if (!sense) return; // remote with no (expressible) control → open output
+    if (sense.kind === "branch") {
+      const col = sim.nodeCount + sense.vs; // target's own branch-current column
+      sim.stampMatrix(o.n, col, this.gain);
+      sim.stampMatrix(o.p, col, -this.gain);
+    } else if (sense.g !== 0) {
       // i_out = β·(g·(Vp−Vn) + iConst): matrix part here, iConst each doStep
-      sim.stampVCCurrentSource(this.nodes[3], this.nodes[2], sense!.p, sense!.n, this.gain * sense!.g);
+      sim.stampVCCurrentSource(o.n, o.p, sense.p, sense.n, this.gain * sense.g);
     }
   }
   override doStep(sim: SimulationManager): void {
     const t = this.controlTarget;
-    if (!t) return;
+    if (!t || !this.isRemote()) return;
     const sense = t.currentSense(sim);
     if (sense && sense.kind === "linear" && sense.iConst !== 0) {
-      sim.stampCurrentSource(this.nodes[3], this.nodes[2], this.gain * sense.iConst); // β·iConst at out+
+      const o = this.outNodes();
+      sim.stampCurrentSource(o.n, o.p, this.gain * sense.iConst); // β·iConst at out+
     }
   }
   override stampPhasor(sim: SimulationManager): void {
-    const vn = sim.nodeCount + this.voltSource;
-    sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, Complex.ZERO);
-    const t = this.controlTarget;
-    const sense = t ? t.currentSensePhasor(sim, sim.omega) : null;
-    if (t && !sense) this.controlTarget = null;
-    if (!this.controlTarget) {
-      sim.stampMatrixC(this.nodes[3], vn, new Complex(this.gain, 0));
-      sim.stampMatrixC(this.nodes[2], vn, new Complex(-this.gain, 0));
+    const o = this.outNodes();
+    if (!this.isRemote()) {
+      const vn = sim.nodeCount + this.voltSource;
+      sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, Complex.ZERO);
+      sim.stampMatrixC(o.n, vn, new Complex(this.gain, 0));
+      sim.stampMatrixC(o.p, vn, new Complex(-this.gain, 0));
       return;
     }
-    if (sense!.kind === "branch") {
-      const col = sim.nodeCount + sense!.vs;
-      sim.stampMatrixC(this.nodes[3], col, new Complex(this.gain, 0));
-      sim.stampMatrixC(this.nodes[2], col, new Complex(-this.gain, 0));
+    const t = this.controlTarget;
+    const sense = t ? t.currentSensePhasor(sim, sim.omega) : null;
+    if (!sense) return;
+    if (sense.kind === "branch") {
+      const col = sim.nodeCount + sense.vs;
+      sim.stampMatrixC(o.n, col, new Complex(this.gain, 0));
+      sim.stampMatrixC(o.p, col, new Complex(-this.gain, 0));
     } else {
-      if (sense!.y.abs() !== 0) stampVCCSComplex(sim, this.nodes[3], this.nodes[2], sense!.p, sense!.n, sense!.y.scale(this.gain));
-      if (sense!.iConst.abs() !== 0) sim.stampCurrentSourceC(this.nodes[3], this.nodes[2], sense!.iConst.scale(this.gain));
+      if (sense.y.abs() !== 0) stampVCCSComplex(sim, o.n, o.p, sense.p, sense.n, sense.y.scale(this.gain));
+      if (sense.iConst.abs() !== 0) sim.stampCurrentSourceC(o.n, o.p, sense.iConst.scale(this.gain));
     }
   }
   protected outputCurrent(): number {
-    return this.gain * this.controlCurrent(); // wired: own sense; bound: target's I
+    return this.gain * this.controlCurrent(); // wired: own sense; remote: target's I
   }
   protected outputCurrentPhasor(): Complex {
     return this.controlCurrentPhasor().scale(this.gain);
   }
   override getPostCurrent(n: number): number {
-    const is = this.controlTarget ? 0 : this.current; // c pair inert when bound
-    if (n === 0) return is;
-    if (n === 1) return -is;
+    if (this.isRemote()) return n === 1 ? -this.outputCurrent() : this.outputCurrent();
+    if (n === 0) return this.current; // wired sense current through the c pair
+    if (n === 1) return -this.current;
     if (n === 2) return -this.outputCurrent();
     return this.outputCurrent();
   }
   override getPostCurrentPhasor(n: number): Complex {
-    const is = this.controlTarget ? Complex.ZERO : this.currentPhasor;
-    if (n === 0) return is;
-    if (n === 1) return is.neg();
+    if (this.isRemote()) return n === 1 ? this.outputCurrentPhasor().neg() : this.outputCurrentPhasor();
+    if (n === 0) return this.currentPhasor;
+    if (n === 1) return this.currentPhasor.neg();
     if (n === 2) return this.outputCurrentPhasor().neg();
     return this.outputCurrentPhasor();
   }
@@ -670,69 +806,79 @@ export class CCVSElm extends ControlledSourceElm {
     return true;
   }
   override getVoltageSourceCount(): number {
-    return 2;
+    // wired: 0 V sense + output row; remote: output row only
+    return this.isRemote() ? 1 : 2;
   }
   override setVoltageSource(n: number, vs: number): void {
-    if (n === 0) this.voltSource = vs; // base id; the output row is voltSource+1
+    if (n === 0) this.voltSource = vs; // base id (wired: sense; remote: output)
+  }
+  /** MNA row of the output source: remote has no sense row before it. */
+  private outVs(): number {
+    return this.isRemote() ? this.voltSource : this.voltSource + 1;
   }
   override stamp(sim: SimulationManager): void {
-    const vnSense = sim.nodeCount + this.voltSource;
-    const vnOut = vnSense + 1;
-    sim.stampVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, 0); // sense (inert when bound)
-    sim.stampVoltageSource(this.nodes[3], this.nodes[2], this.voltSource + 1); // output row (= 0 RHS)
-    const t = this.controlTarget;
-    const sense = t ? t.currentSense(sim) : null;
-    if (t && !sense) this.controlTarget = null; // unexpressible current → wired fallback
-    if (!this.controlTarget) {
+    const o = this.outNodes();
+    const vnOut = sim.nodeCount + this.outVs();
+    sim.stampVoltageSource(o.n, o.p, this.outVs()); // output row (= 0 RHS)
+    if (!this.isRemote()) {
+      const vnSense = sim.nodeCount + this.voltSource;
+      sim.stampVoltageSource(this.nodes[0], this.nodes[1], this.voltSource, 0); // sense
       sim.stampMatrix(vnOut, vnSense, -this.gain); // V(o+)−V(o−) − r·I_sense = 0
       return;
     }
-    if (sense!.kind === "branch") {
-      sim.stampMatrix(vnOut, sim.nodeCount + sense!.vs, -this.gain);
-    } else if (sense!.g !== 0) {
+    const t = this.controlTarget;
+    const sense = t ? t.currentSense(sim) : null;
+    if (!sense) return; // remote, no control → behaves as a 0 V source
+    if (sense.kind === "branch") {
+      sim.stampMatrix(vnOut, sim.nodeCount + sense.vs, -this.gain);
+    } else if (sense.g !== 0) {
       // V(o+)−V(o−) − r·g·(Vp−Vn) = r·iConst (RHS refreshed each doStep)
-      sim.stampMatrix(vnOut, sense!.p, -this.gain * sense!.g);
-      sim.stampMatrix(vnOut, sense!.n, this.gain * sense!.g);
+      sim.stampMatrix(vnOut, sense.p, -this.gain * sense.g);
+      sim.stampMatrix(vnOut, sense.n, this.gain * sense.g);
     }
   }
   override doStep(sim: SimulationManager): void {
     const t = this.controlTarget;
-    if (!t) return;
+    if (!t || !this.isRemote()) return;
     const sense = t.currentSense(sim);
     if (sense && sense.kind === "linear" && sense.iConst !== 0) {
-      sim.stampRightSide(sim.nodeCount + this.voltSource + 1, this.gain * sense.iConst);
+      sim.stampRightSide(sim.nodeCount + this.outVs(), this.gain * sense.iConst);
     }
   }
   override stampPhasor(sim: SimulationManager): void {
-    const vnSense = sim.nodeCount + this.voltSource;
-    const vnOut = vnSense + 1;
-    sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, Complex.ZERO);
-    sim.stampVoltageSourceC(this.nodes[3], this.nodes[2], this.voltSource + 1, Complex.ZERO);
+    const o = this.outNodes();
+    const vnOut = sim.nodeCount + this.outVs();
     const Z = this.zGain(); // complex transresistance: V(o+)−V(o−) = Z·I_ctrl
-    const t = this.controlTarget;
-    const sense = t ? t.currentSensePhasor(sim, sim.omega) : null;
-    if (t && !sense) this.controlTarget = null;
-    if (!this.controlTarget) {
+    sim.stampVoltageSourceC(o.n, o.p, this.outVs(), Complex.ZERO);
+    if (!this.isRemote()) {
+      const vnSense = sim.nodeCount + this.voltSource;
+      sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, Complex.ZERO);
       sim.stampMatrixC(vnOut, vnSense, Z.neg());
       return;
     }
-    if (sense!.kind === "branch") {
-      sim.stampMatrixC(vnOut, sim.nodeCount + sense!.vs, Z.neg());
+    const t = this.controlTarget;
+    const sense = t ? t.currentSensePhasor(sim, sim.omega) : null;
+    if (!sense) return;
+    if (sense.kind === "branch") {
+      sim.stampMatrixC(vnOut, sim.nodeCount + sense.vs, Z.neg());
     } else {
-      if (sense!.y.abs() !== 0) {
-        sim.stampMatrixC(vnOut, sense!.p, sense!.y.mul(Z).neg());
-        sim.stampMatrixC(vnOut, sense!.n, sense!.y.mul(Z));
+      if (sense.y.abs() !== 0) {
+        sim.stampMatrixC(vnOut, sense.p, sense.y.mul(Z).neg());
+        sim.stampMatrixC(vnOut, sense.n, sense.y.mul(Z));
       }
-      if (sense!.iConst.abs() !== 0) sim.stampRightSideC(vnOut, sense!.iConst.mul(Z));
+      if (sense.iConst.abs() !== 0) sim.stampRightSideC(vnOut, sense.iConst.mul(Z));
     }
   }
   override setCurrent(vs: number, c: number): void {
-    this.currents[vs - this.voltSource] = c;
-    this.current = this.currents[0]; // sense current is the control reading
+    // remote: the single source is the output; wired: [sense, output]
+    const idx = this.isRemote() ? 1 : vs - this.voltSource;
+    this.currents[idx] = c;
+    this.current = this.isRemote() ? this.controlCurrent() : this.currents[0];
   }
   override setCurrentPhasor(vs: number, c: Complex): void {
-    this.currentsPhasor[vs - this.voltSource] = c;
-    this.currentPhasor = this.currentsPhasor[0];
+    const idx = this.isRemote() ? 1 : vs - this.voltSource;
+    this.currentsPhasor[idx] = c;
+    this.currentPhasor = this.isRemote() ? this.controlCurrentPhasor() : this.currentsPhasor[0];
   }
   protected outputCurrent(): number {
     return this.currents[1]; // solved output branch current (out of out+)
@@ -741,12 +887,14 @@ export class CCVSElm extends ControlledSourceElm {
     return this.currentsPhasor[1];
   }
   override getPostCurrent(n: number): number {
+    if (this.isRemote()) return n === 1 ? -this.currents[1] : this.currents[1];
     if (n === 0) return this.currents[0];
     if (n === 1) return -this.currents[0];
     if (n === 2) return -this.currents[1];
     return this.currents[1];
   }
   override getPostCurrentPhasor(n: number): Complex {
+    if (this.isRemote()) return n === 1 ? this.currentsPhasor[1].neg() : this.currentsPhasor[1];
     if (n === 0) return this.currentsPhasor[0];
     if (n === 1) return this.currentsPhasor[0].neg();
     if (n === 2) return this.currentsPhasor[1].neg();
