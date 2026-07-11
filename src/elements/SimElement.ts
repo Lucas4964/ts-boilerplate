@@ -497,8 +497,10 @@ export abstract class SimElement {
   }
 
   protected color(g: Graphics): void {
+    // Uniform 1.5 stroke for every element; selection/hover is shown by the cyan
+    // colour alone (no width change), as in Falstad.
     g.setColor(this.needsHighlight() ? SimElement.selectColor : SimElement.elementColor);
-    g.setLineWidth(this.needsHighlight() ? 2 : 1.5);
+    g.setLineWidth(1.5);
   }
 
   protected drawPosts(g: Graphics): void {

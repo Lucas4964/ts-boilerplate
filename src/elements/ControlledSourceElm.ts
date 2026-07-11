@@ -179,10 +179,8 @@ export abstract class ControlledSourceElm extends SimElement {
     const s = 14; // diamond half-size
     this.setBboxP(this.point1, this.point2, s + 2);
     this.curcount = this.updateDotCount(this.outputCurrent(), this.curcount);
-    // Uniform stroke for leads + diamond (matches the app style; no thin leads).
-    const w = this.needsHighlight() ? 3 : 2;
+    // Uniform 1.5 stroke for leads + diamond.
     this.color(g);
-    g.setLineWidth(w);
     g.drawLineP(this.point1, this.lead1);
     g.drawLineP(this.point2, this.lead2);
     const len = Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y);
@@ -191,7 +189,6 @@ export abstract class ControlledSourceElm extends SimElement {
       const uy = (this.lead2.y - this.lead1.y) / len;
       const stroke = this.needsHighlight() ? SimElement.selectColor : SimElement.elementColor;
       g.save();
-      g.setLineWidth(w);
       // Local frame: x runs 0→len along the axis (toward out+), y perpendicular.
       g.transform(ux, uy, -uy, ux, this.lead1.x, this.lead1.y);
       const m = len / 2; // diamond centre on the axis
@@ -212,9 +209,7 @@ export abstract class ControlledSourceElm extends SimElement {
         const tip = m + s - 3;
         const hb = tip - 8; // head base
         const hw = 5; // head half-width
-        g.setLineWidth(w + 1);
         g.drawLine(tail, 0, hb, 0);
-        g.setLineWidth(w);
         g.setColor(stroke);
         g.fillPolygon([tip, hb, hb], [0, -hw, hw]); // solid arrowhead
       } else {

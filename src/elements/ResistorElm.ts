@@ -67,11 +67,8 @@ export class ResistorElm extends SimElement {
   override draw(g: Graphics): void {
     let hs = 6;
     this.setBboxP(this.point1, this.point2, hs);
-    // Uniform stroke: leads and the zigzag body share one width (Falstad draws
-    // everything at 3), so the terminals no longer look thinner than the middle.
-    const w = this.needsHighlight() ? 4 : 3;
+    // Uniform 1.5 stroke: leads and the zigzag body share the same width.
     this.color(g);
-    g.setLineWidth(w);
     g.drawLineP(this.point1, this.lead1);
     g.drawLineP(this.point2, this.lead2);
     const len = Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y);
@@ -79,7 +76,6 @@ export class ResistorElm extends SimElement {
       const ux = (this.lead2.x - this.lead1.x) / len;
       const uy = (this.lead2.y - this.lead1.y) / len;
       g.save();
-      g.setLineWidth(w);
       g.transform(ux, uy, -uy, ux, this.lead1.x, this.lead1.y);
       if (this.dn < 30) hs = 2;
       const ctx = g.ctx;

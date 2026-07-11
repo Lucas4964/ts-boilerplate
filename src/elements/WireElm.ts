@@ -33,7 +33,7 @@ export class WireElm extends SimElement {
   override draw(g: Graphics): void {
     this.setBboxP(this.point1, this.point2, 3);
     g.setColor(this.needsHighlight() ? SimElement.selectColor : "#7ee787");
-    g.setLineWidth(this.needsHighlight() ? 3 : 2);
+    g.setLineWidth(1.5);
     g.drawLineP(this.point1, this.point2);
     this.drawPosts(g);
   }
