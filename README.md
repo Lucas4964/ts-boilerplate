@@ -86,6 +86,12 @@ scripts over that protocol — hence the tiny local server.) On macOS/Linux use
   the physical value with its unit (`1H`, `15µF`, `10`); phasor mode shows the
   impedance in ohms, with a `j` prefix on inductors (`j377`) and `-j` on
   capacitors (`-j265`) to flag the complex reactance.
+- **Symbol strokes:** the **resistor** (US zigzag) and **inductor** (semicircle
+  coil) are ported from CircuitJS1 and drawn at a **uniform stroke width** — the
+  leads are the same weight as the body, not thinner. A **remote controlled
+  source** draws as a **diamond** on its lead: `+`/`−` (stacked, the `−` a dash
+  across the wire) for a voltage output, or a filled arrow toward `out+` for a
+  current output — in the app's own colours (outline only, no fill).
 - **Voltage reference mark:** R/L/C draw a small white **`*`** beside one
   terminal — the *positive* reference node. The panel shows
   `Vd = V(* terminal) − V(other)`, so a sign tells you the orientation

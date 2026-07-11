@@ -81,14 +81,18 @@ export class InductorElm extends SimElement {
   override draw(g: Graphics): void {
     const hs = 8;
     this.setBboxP(this.point1, this.point2, hs);
-    this.draw2Leads(g);
+    // Uniform stroke: leads and coil share one width (no thin-lead/thick-body mix).
+    const w = this.needsHighlight() ? 4 : 3;
+    this.color(g);
+    g.setLineWidth(w);
+    g.drawLineP(this.point1, this.lead1);
+    g.drawLineP(this.point2, this.lead2);
     const len = Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y);
     if (len > 0) {
       const ux = (this.lead2.x - this.lead1.x) / len;
       const uy = (this.lead2.y - this.lead1.y) / len;
-      this.color(g);
       g.save();
-      g.setLineWidth(3);
+      g.setLineWidth(w);
       g.setLineCap("round");
       g.transform(ux, uy, -uy, ux, this.lead1.x, this.lead1.y);
       const ctx = g.ctx;

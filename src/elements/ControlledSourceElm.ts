@@ -176,19 +176,29 @@ export abstract class ControlledSourceElm extends SimElement {
    *  axis (the dependent-source symbol), reference star on out+ (post 1), and
    *  the dashed "ctrl" link to the bound control element. */
   private drawRemote(g: Graphics): void {
-    const s = 12; // diamond half-size
+    const s = 14; // diamond half-size
     this.setBboxP(this.point1, this.point2, s + 2);
     this.curcount = this.updateDotCount(this.outputCurrent(), this.curcount);
-    this.draw2Leads(g);
+    // Uniform stroke for leads + diamond (matches the app style; no thin leads).
+    const w = this.needsHighlight() ? 3 : 2;
+    this.color(g);
+    g.setLineWidth(w);
+    g.drawLineP(this.point1, this.lead1);
+    g.drawLineP(this.point2, this.lead2);
     const len = Math.hypot(this.lead2.x - this.lead1.x, this.lead2.y - this.lead1.y);
     if (len > 0) {
       const ux = (this.lead2.x - this.lead1.x) / len;
       const uy = (this.lead2.y - this.lead1.y) / len;
-      this.color(g);
+      const stroke = this.needsHighlight() ? SimElement.selectColor : SimElement.elementColor;
       g.save();
+      g.setLineWidth(w);
+      // Local frame: x runs 0→len along the axis (toward out+), y perpendicular.
       g.transform(ux, uy, -uy, ux, this.lead1.x, this.lead1.y);
-      const m = len / 2;
+      const m = len / 2; // diamond centre on the axis
       const ctx = g.ctx;
+      // Diamond (rhombus) — vertices on the axis (out−/out+ sides) and to the
+      // sides. Outlined only, in the element colour (no light fill, to match
+      // the app palette).
       ctx.beginPath();
       ctx.moveTo(m - s, 0);
       ctx.lineTo(m, -s);
@@ -197,15 +207,27 @@ export abstract class ControlledSourceElm extends SimElement {
       ctx.closePath();
       ctx.stroke();
       if (this.currentOutput()) {
-        // arrow along the axis pointing toward out+ (post 1 side)
-        g.drawLine(m - s + 4, 0, m + s - 4, 0);
-        g.drawLine(m + s - 4, 0, m + s - 9, -4);
-        g.drawLine(m + s - 4, 0, m + s - 9, 4);
+        // Bold arrow along the axis toward out+ (post 1), filled triangular head.
+        const tail = m - s + 5;
+        const tip = m + s - 3;
+        const hb = tip - 8; // head base
+        const hw = 5; // head half-width
+        g.setLineWidth(w + 1);
+        g.drawLine(tail, 0, hb, 0);
+        g.setLineWidth(w);
+        g.setColor(stroke);
+        g.fillPolygon([tip, hb, hb], [0, -hw, hw]); // solid arrowhead
       } else {
-        // "+" toward post 1 (out+), "−" toward post 0
-        g.drawLine(m + 4, 0, m + 8, 0);
-        g.drawLine(m + 6, -2, m + 6, 2);
-        g.drawLine(m - 8, 0, m - 4, 0);
+        // "+" toward out+ and "−" toward out−, stacked along the axis. The minus
+        // is drawn perpendicular to the wire (along the frame's y) so it reads
+        // as a dash across the wire, like the reference symbol.
+        const off = 6; // distance of each glyph from centre along the axis
+        const r = 4; // glyph half-length
+        // plus (toward out+, +x)
+        g.drawLine(m + off - r, 0, m + off + r, 0);
+        g.drawLine(m + off, -r, m + off, r);
+        // minus (toward out−, −x) — perpendicular dash
+        g.drawLine(m - off, -r, m - off, r);
       }
       g.restore();
     }
