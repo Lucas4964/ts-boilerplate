@@ -231,8 +231,14 @@ export abstract class ControlledSourceElm extends SimElement {
     const mid = this.rotWorld(cxm, yB + 14, ccx, ccy);
     g.setColor(SimElement.valueColor);
     g.setFontSize(11);
-    const label = this.getType().replace("Elm", "") + "  " + this.gainPrefix() + round4(this.gain);
+    const label = this.getType().replace("Elm", "") + "  " + this.gainText();
     g.drawString(label, mid.x - g.measureWidth(label) / 2, mid.y + 4);
+  }
+
+  /** Gain label drawn on canvas / shown in the panel; subclasses with a complex
+   *  gain (CCVS) override it. */
+  protected gainText(): string {
+    return this.gainPrefix() + round4(this.gain);
   }
 
   private senseCount = 0;
@@ -241,9 +247,21 @@ export abstract class ControlledSourceElm extends SimElement {
 
   private pickRequested = false;
 
+  /** Extra numeric edit fields a subclass adds between the gain and the
+   *  Control choice (e.g. the CCVS reactance). */
+  protected extraEditCount(): number {
+    return 0;
+  }
+  protected getExtraEditInfo(_k: number): EditInfo | null {
+    return null;
+  }
+  protected setExtraEditValue(_k: number, _v: number): void {}
+
   override getEditInfo(n: number): EditInfo | null {
     if (n === 0) return EditInfo.precise(this.gainLabel(), this.gain);
-    if (n === 1) {
+    const k = n - 1;
+    if (k < this.extraEditCount()) return this.getExtraEditInfo(k);
+    if (n === 1 + this.extraEditCount()) {
       const bound = this.controlTarget !== null;
       const pickLabel = bound
         ? "Bound: " + this.controlTarget!.getType().replace("Elm", "")
@@ -253,10 +271,15 @@ export abstract class ControlledSourceElm extends SimElement {
     return null;
   }
   override setEditValue(n: number, value: number): void {
-    if (n === 0 && Number.isFinite(value) && value !== 0) this.gain = value;
+    if (n === 0) {
+      if (Number.isFinite(value) && value !== 0) this.gain = value;
+      return;
+    }
+    const k = n - 1;
+    if (k < this.extraEditCount()) this.setExtraEditValue(k, value);
   }
   override setEditChoice(n: number, choiceIndex: number): void {
-    if (n !== 1) return;
+    if (n !== 1 + this.extraEditCount()) return;
     if (choiceIndex === 0) {
       this.controlTarget = null; // back to the wired c+/c− pair
     } else if (!this.controlTarget) {
@@ -359,7 +382,7 @@ export abstract class ControlledSourceElm extends SimElement {
       : "Vctrl = " + getUnitText(this.controlVolts(), "V");
     return [
       this.getType().replace("Elm", ""),
-      this.gainPrefix().replace("=", "") + " = " + round4(this.gain),
+      this.gainText(),
       this.boundInfo(),
       ctrl,
       "Vout = " + getUnitText(this.outputVolts(), "V"),
@@ -373,7 +396,7 @@ export abstract class ControlledSourceElm extends SimElement {
       : "Vctrl = " + formatPolar(this.controlVoltsPhasor(), "V");
     return [
       this.getType().replace("Elm", ""),
-      this.gainPrefix().replace("=", "") + " = " + round4(this.gain),
+      this.gainText(),
       this.boundInfo(),
       ctrl,
       "Vout = " + formatPolar(this.outputVoltsPhasor(), "V"),
@@ -596,8 +619,40 @@ export class CCVSElm extends ControlledSourceElm {
     super(x, y);
     this.gain = 10;
   }
+  /** Imaginary part of the transresistance (Ω): Z = gain + j·reactance, used in
+   *  PHASOR mode only — this is the X_m of a mutually-coupled line, so
+   *  V = Z_m·I_other works per phase (exact even for unbalanced/untransposed
+   *  systems: the coupling is the full phase-domain Z matrix). In transient
+   *  there is no jX operator, so only the real gain applies. */
+  reactance = 0;
   private currents: [number, number] = [0, 0]; // [I_sense, I_out]
   private currentsPhasor: [Complex, Complex] = [Complex.ZERO, Complex.ZERO];
+
+  private zGain(): Complex {
+    return new Complex(this.gain, this.reactance);
+  }
+  protected override extraEditCount(): number {
+    return 1;
+  }
+  protected override getExtraEditInfo(k: number): EditInfo | null {
+    if (k === 0) return EditInfo.precise("Reactance x (Ω, phasor)", this.reactance);
+    return null;
+  }
+  protected override setExtraEditValue(k: number, v: number): void {
+    if (k === 0 && Number.isFinite(v)) this.reactance = v; // 0 / negative are valid
+  }
+  protected override gainText(): string {
+    if (this.reactance === 0) return this.gainPrefix() + round4(this.gain);
+    const sign = this.reactance >= 0 ? "+j" : "-j";
+    return "Z=" + round4(this.gain) + sign + round4(Math.abs(this.reactance));
+  }
+  override getDumpAttributes(): number[] {
+    return [...super.getDumpAttributes(), this.reactance];
+  }
+  override applyDumpAttributes(a: number[]): void {
+    super.applyDumpAttributes(a);
+    this.reactance = a.length > 3 ? a[3] : 0;
+  }
 
   override getType(): string {
     return "CCVSElm";
@@ -653,21 +708,22 @@ export class CCVSElm extends ControlledSourceElm {
     const vnOut = vnSense + 1;
     sim.stampVoltageSourceC(this.nodes[0], this.nodes[1], this.voltSource, Complex.ZERO);
     sim.stampVoltageSourceC(this.nodes[3], this.nodes[2], this.voltSource + 1, Complex.ZERO);
+    const Z = this.zGain(); // complex transresistance: V(o+)−V(o−) = Z·I_ctrl
     const t = this.controlTarget;
     const sense = t ? t.currentSensePhasor(sim, sim.omega) : null;
     if (t && !sense) this.controlTarget = null;
     if (!this.controlTarget) {
-      sim.stampMatrixC(vnOut, vnSense, new Complex(-this.gain, 0));
+      sim.stampMatrixC(vnOut, vnSense, Z.neg());
       return;
     }
     if (sense!.kind === "branch") {
-      sim.stampMatrixC(vnOut, sim.nodeCount + sense!.vs, new Complex(-this.gain, 0));
+      sim.stampMatrixC(vnOut, sim.nodeCount + sense!.vs, Z.neg());
     } else {
       if (sense!.y.abs() !== 0) {
-        sim.stampMatrixC(vnOut, sense!.p, sense!.y.scale(-this.gain));
-        sim.stampMatrixC(vnOut, sense!.n, sense!.y.scale(this.gain));
+        sim.stampMatrixC(vnOut, sense!.p, sense!.y.mul(Z).neg());
+        sim.stampMatrixC(vnOut, sense!.n, sense!.y.mul(Z));
       }
-      if (sense!.iConst.abs() !== 0) sim.stampRightSideC(vnOut, sense!.iConst.scale(this.gain));
+      if (sense!.iConst.abs() !== 0) sim.stampRightSideC(vnOut, sense!.iConst.mul(Z));
     }
   }
   override setCurrent(vs: number, c: number): void {

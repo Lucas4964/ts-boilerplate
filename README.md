@@ -118,7 +118,17 @@ On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
   and current sources; **wires can't be bound** (their current isn't computed).
   The binding survives save/load and undo; deleting the target falls back to
   the wired pair. The bound coupling stays **inside the matrix** (simultaneous,
-  no one-step lag), so results are identical to the wired equivalent. A high-gain VCVS makes an ideal-op-amp macro (validated: an
+  no one-step lag), so results are identical to the wired equivalent.
+  **Complex transresistance (CCVS):** the CCVS also takes a **Reactance x (Ω)**,
+  making its gain `Z = r + jx` in **phasor mode** (in transient there is no `jX`
+  operator, so only `r` applies). This enables the classic **mutually-coupled
+  line** model in the phase domain: per phase, wire the self impedance as
+  `R_s + L_s` in series, then one CCVS per mutual, bound to the *other* phase's
+  ammeter, with `x = X_m` (and `r = R_m` if there is a Carson earth-return
+  resistance). Because it implements the full phase-domain Z matrix
+  (`V_a = Z_aa·I_a + Z_ab·I_b + …`), it is exact for **unbalanced** systems and
+  **untransposed** lines (validated against a hand-solved 2×2 complex system to
+  ~1e-8). Note this is the lumped series (short-line) model — no shunt C. A high-gain VCVS makes an ideal-op-amp macro (validated: an
   inverting amp with μ=1e5, R1=1k, Rf=10k reads −9.9989 V — the exact
   finite-gain value). Caveats: a loop of ideal V-outputs is singular (add a
   series resistor), and positive-feedback loops with gain ≥ 1 blow up — physics,
