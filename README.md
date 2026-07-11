@@ -27,6 +27,17 @@ npm run electron   # optional desktop wrapper (after build; needs `npm i -D elec
 
 On load you get a demo RC circuit. Press **Run** to watch the capacitor charge.
 
+### Run it without the terminal (Windows)
+
+Double-click **`run-simulator.bat`**. On first launch it installs dependencies
+and builds; then it starts a local server and opens the simulator in your
+default browser at `http://localhost:4173`. It rebuilds on every launch, so it
+always reflects the current code. **Node.js is the only prerequisite**
+(https://nodejs.org). Closing the console window stops the server. (The static
+`dist/` can't be opened straight from `file://` because browsers block ES-module
+scripts over that protocol — hence the tiny local server.) On macOS/Linux use
+`npm run dev` instead.
+
 ## Using it
 
 - **Toolbar:** Run/Stop, Reset, a **Select** tool, one button per element, Delete,
