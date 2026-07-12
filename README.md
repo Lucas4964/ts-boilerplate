@@ -290,6 +290,22 @@ equation `V = jωL·I + jωM·I_other` (phasor) / trapezoidal companion (transie
 `M = k·√(L1·L2)`. Because it never inverts `[L]`, it stays well-conditioned up to
 ideal coupling (`k = 1`).
 
+### Ideal transformer
+
+`Transformer (Ideal)` is the textbook two-port with a **single parameter, the
+turns ratio N1:N2** — no inductance, no coupling coefficient to tune. It stamps
+the two ideal constraints directly (`V1 = n·V2`, `I2 = −n·I1`) with **one** extra
+current unknown, so voltage AND current ratios are exact at any frequency —
+**including DC** (the ideal two-port transforms any waveform; a physical
+transformer would short DC through its magnetizing inductance). With the
+secondary open, `I1 = 0` exactly (no magnetizing current). A tiny internal
+series resistance (1 µΩ, µV-level error) regularises the one genuinely
+degenerate topology — a **Δ–Δ bank** of pure ideal constraints, whose delta
+circulating current is physically indeterminate — so banks of any connection
+(Y-Y, Y-Δ, Δ-Y, **Δ-Δ**) solve without singular matrices. Use the physical
+`Transformer` when you want magnetizing/leakage effects; use the ideal one for
+clean textbook ratios and effortless banks.
+
 ### Fidelity notes (validated against analytic solutions)
 
 Two deliberate deviations from Falstad, both *toward* SPICE:

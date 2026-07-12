@@ -6,6 +6,7 @@ import "./ResistorElm";
 import "./CapacitorElm";
 import "./InductorElm";
 import "./TransformerElm";
+import "./IdealTransformerElm";
 import "./ThreePhaseTransformerElm";
 import "./DCVoltageElm";
 import "./ACVoltageElm";

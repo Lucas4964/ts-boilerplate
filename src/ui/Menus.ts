@@ -23,6 +23,7 @@ const MENU_BAR: { label: string; items: MenuItem[] }[] = [
         label: "Transformers",
         sub: [
           { label: "1 Phase", mode: "TransformerElm" },
+          { label: "1 Phase (Ideal)", mode: "IdealTransformerElm" },
           { label: "3 Phase", mode: "ThreePhaseTransformerElm" },
         ],
       },

@@ -32,17 +32,18 @@ export class TransformerElm extends SimElement {
   private reqM = 0;
   private veq1 = 0;
   private veq2 = 0;
-  private currents: [number, number] = [0, 0]; // solved branch currents [I1, I2]
-  private curcount1 = 0;
-  private curcount2 = 0;
+  // (protected so IdealTransformerElm can reuse the geometry/drawing wholesale)
+  protected currents: [number, number] = [0, 0]; // solved branch currents [I1, I2]
+  protected curcount1 = 0;
+  protected curcount2 = 0;
 
   // phasor-mode solved branch currents
-  private currentPhasor2 = Complex.ZERO; // secondary (currentPhasor holds primary)
+  protected currentPhasor2 = Complex.ZERO; // secondary (currentPhasor holds primary)
 
-  private posts: Point[] = [new Point(), new Point(), new Point(), new Point()];
+  protected posts: Point[] = [new Point(), new Point(), new Point(), new Point()];
   // Canonical (unrotated, horizontal) posts — used by draw() inside the rotation
   // transform. `posts` above holds the rotated (world) posts read by the engine.
-  private cposts: Point[] = [new Point(), new Point(), new Point(), new Point()];
+  protected cposts: Point[] = [new Point(), new Point(), new Point(), new Point()];
 
   override getType(): string {
     return "TransformerElm";
